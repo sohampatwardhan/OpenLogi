@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.21] - 2026-11-01
+
+### Added
+
+- *(hid)* recognise Spotlight receiver 046d:c53e ([#2157](https://github.com/AprilNEA/OpenLogi/pull/2157))
+- *(agent)* add per-device momentum scrolling ([#1994](https://github.com/AprilNEA/OpenLogi/pull/1994))
+
+### Changed
+
+- *(gui)* embed the 512 px logo instead of the 1024 px master
+
+### Fixed
+
+- *(gui)* keep the keyboard still and name every key beside it
+- *(gui)* read an unbound keyboard key as its native function
+- *(gui)* lift dark text so the highlighted Select row stays readable
+- *(gui)* stop a hovered Home view mode looking selected
+- *(gui)* mark the selected theme filter like the cards beside it
+- *(gui)* fill the chosen segment of a button group with the accent
+- *(gui)* give the selected fill and dark slider thumb visible tokens
+- *(gui)* name the keyboard lighting switch by what it does
+- *(i18n)* use sentence case for settings labels and shorten the profile note
+- *(gui)* wrap the Linux device-access hint and link its fix guide
+- *(gui)* fit mouse hotspot labels and render to the canvas area
+- *(gui)* keep the shell and offer retry while the agent is unreachable
+- *(gui)* make the add device steps read as a guided flow
+- *(gui)* stop repeating the actions ring name on its page
+- *(gui)* keep the ring's custom shortcut field in view
+- *(gui)* use the house switch for the actions ring toggles
+- *(gui)* lay out every slider setting with one slider row
+- *(gui)* drop the Lighting card title that repeats the tab name
+- *(gui)* keep battery readouts one width as the charge changes
+- *(gui)* label the Manage this device switch On/Off
+- *(gui)* set Device tab label/value rows on one baseline
+- *(gui)* open each device tab at its top
+- *(gui)* fade carousel cards cut by the row edge
+- *(gui)* give every home grid row the same column width
+- *(gui)* color the transport glyph in home list rows
+- *(hook)* debounce linux mouse buttons the way libinput does ([#2247](https://github.com/AprilNEA/OpenLogi/pull/2247))
+- *(hook)* debounce linux wheel jitter on the pass-through device ([#2243](https://github.com/AprilNEA/OpenLogi/pull/2243))
+- *(agent)* stop mapping native horizontal scroll to thumb-wheel bindings ([#2245](https://github.com/AprilNEA/OpenLogi/pull/2245))
+- *(ci)* reclaim root-owned Crowdin downloads before merging catalogs ([#2236](https://github.com/AprilNEA/OpenLogi/pull/2236))
+- *(cli)* say disabled in the windows hid-only note ([#2224](https://github.com/AprilNEA/OpenLogi/pull/2224))
+- *(macos)* flag a shortcut's arrow key with fn as a keyboard does ([#2218](https://github.com/AprilNEA/OpenLogi/pull/2218))
+- *(device)* restore the 0x8110 button mapping when leaving host mode ([#2222](https://github.com/AprilNEA/OpenLogi/pull/2222))
+- *(cli)* name logitech devices that expose no hid++ interface ([#2220](https://github.com/AprilNEA/OpenLogi/pull/2220))
+- *(gui)* focus existing settings window during action dispatch
+- *(agent)* run pointer-mode shortcuts the focused app binds the same way ([#2216](https://github.com/AprilNEA/OpenLogi/pull/2216))
+
 ## [0.8.20] - 2026-11-01
 
 ### Added
