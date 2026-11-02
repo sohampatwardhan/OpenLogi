@@ -7,9 +7,8 @@
 //! when the agent reports nothing showing.
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Context, FontWeight, Hsla, IntoElement,
-    ParentElement, Render, Size, Styled, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, px, svg,
+    AnyWindowHandle, App, AppContext as _, Context, FontWeight, Hsla, IntoElement, ParentElement,
+    Render, Styled, Window, WindowHandle, div, px, size, svg,
 };
 use openlogi_core::device::LockKey;
 use openlogi_ipc::LockKeyChange;
@@ -105,8 +104,12 @@ pub(crate) fn present(cx: &mut App, shown: Option<LockKeyChange>) {
         return;
     };
     if open.is_empty() {
-        let options = window_options(cx);
-        if let Err(error) = cx.open_window(options, |_, cx| cx.new(|_| LockKeyView { change })) {
+        if let Err(error) = crate::popup::open(
+            cx,
+            "openlogi-lock-key-osd",
+            size(px(WIDTH), px(HEIGHT)),
+            move |_, cx| cx.new(|_| LockKeyView { change }),
+        ) {
             warn!(%error, "could not open the lock-key indicator window");
         }
         return;
@@ -116,23 +119,6 @@ pub(crate) fn present(cx: &mut App, shown: Option<LockKeyChange>) {
             view.change = change;
             cx.notify();
         });
-    }
-}
-
-fn window_options(cx: &mut App) -> WindowOptions {
-    let bounds = Bounds::centered(None, Size::new(px(WIDTH), px(HEIGHT)), cx);
-    WindowOptions {
-        titlebar: None,
-        focus: false,
-        show: true,
-        kind: WindowKind::PopUp,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Transparent,
-        app_id: Some("openlogi-lock-key-osd".to_string()),
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        ..WindowOptions::default()
     }
 }
 
