@@ -1,4 +1,4 @@
-//! Notices: one card per notice, stacked at the bottom of the screen, telling
+//! Notices: one card per notice, stacked on the platform screen edge, telling
 //! the user something the agent saw — today, that a device's battery is low.
 //!
 //! The agent decides what is showing and for how long
@@ -21,10 +21,11 @@ use openlogi_ipc::{Notice, NoticeKind};
 use openlogi_ui::action_icons::LOW_BATTERY_ICON;
 use tracing::warn;
 
+use crate::edge::{self, Edge};
 use crate::platform::NoticePlacement;
 
 /// The most cards shown at once. Older ones wait out their time unseen rather
-/// than push the stack up the screen.
+/// than grow the stack across the screen.
 pub(crate) const MAX_CARDS: usize = 3;
 pub(crate) const CARD_WIDTH: f32 = 320.0;
 pub(crate) const CARD_HEIGHT: f32 = 64.0;
@@ -32,8 +33,6 @@ pub(crate) const CARD_GAP: f32 = 8.0;
 /// Clear space around the stack, so the cards' shadow is not cut off at the
 /// window edge.
 pub(crate) const STACK_INSET: f32 = 12.0;
-/// How far the stack sits above the bottom of the display's usable area.
-pub(crate) const BOTTOM_MARGIN: f32 = 48.0;
 /// Window identity for notices, distinct from the ring's so a compositor or a
 /// window rule can tell them apart.
 pub(crate) const NOTICE_APP_ID: &str = "openlogi-notice";
@@ -122,29 +121,12 @@ pub(crate) fn stack_size(count: usize) -> Size<Pixels> {
     )
 }
 
-/// Top-left of a window of `window` size placed at the bottom centre of
-/// `area`, [`BOTTOM_MARGIN`] above its bottom edge, and kept inside it.
+/// Appearance shared by every transient card window.
 ///
-/// Windows places the notice in physical pixels instead (see
-/// `platform/windows.rs`), so only the other platforms and the tests use this.
-#[cfg(any(not(windows), test))]
-pub(crate) fn bottom_centre(
-    area: gpui::Bounds<Pixels>,
-    window: Size<Pixels>,
-) -> gpui::Point<Pixels> {
-    let desired = gpui::point(
-        area.origin.x + (area.size.width - window.width) / 2.0,
-        area.bottom() - window.height - px(BOTTOM_MARGIN),
-    );
-    let max = gpui::point(
-        (area.right() - window.width).max(area.origin.x),
-        (area.bottom() - window.height).max(area.origin.y),
-    );
-    desired.clamp(&area.origin, &max)
-}
-
-/// Appearance shared by the platform-specific notice placements.
-pub(crate) fn notice_window_options() -> WindowOptions {
+/// `app_id` is the window identity a compositor or a window rule matches.
+/// Notices pass [`NOTICE_APP_ID`]; the backlight and lock-key indicators pass
+/// their own.
+pub(crate) fn card_window_options(app_id: &str) -> WindowOptions {
     WindowOptions {
         titlebar: None,
         focus: false,
@@ -154,7 +136,7 @@ pub(crate) fn notice_window_options() -> WindowOptions {
         is_resizable: false,
         is_minimizable: false,
         window_background: WindowBackgroundAppearance::Transparent,
-        app_id: Some(NOTICE_APP_ID.to_string()),
+        app_id: Some(app_id.to_string()),
         ..WindowOptions::default()
     }
 }
@@ -247,7 +229,7 @@ fn close_notice_windows(cx: &mut gpui::App) {
     }
 }
 
-/// The notice window's view: the stacked cards, newest at the bottom.
+/// The notice window's view: the stacked cards, newest against the platform edge.
 pub(crate) struct NoticeView {
     cards: Vec<Notice>,
     shelf: Rc<RefCell<NoticeShelf>>,
@@ -307,15 +289,23 @@ impl NoticeView {
 
 impl Render for NoticeView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+        // Shown in place on the platform edge. There is no entrance animation;
+        // the newest card is the one against that edge.
+        let edge = Edge::platform_default();
+        let cards = edge::newest_against_edge(edge, &self.cards);
+        let stack = div()
             .size_full()
             .flex()
             .flex_col()
-            .justify_end()
             .items_center()
             .gap(px(CARD_GAP))
-            .p(px(STACK_INSET))
-            .children(self.cards.iter().map(|notice| self.card(notice)))
+            .p(px(STACK_INSET));
+        let stack = if edge.newest_first() {
+            stack.justify_start()
+        } else {
+            stack.justify_end()
+        };
+        stack.children(cards.into_iter().map(|notice| self.card(notice)))
     }
 }
 

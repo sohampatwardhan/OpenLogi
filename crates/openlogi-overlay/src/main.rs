@@ -17,10 +17,12 @@
 rust_i18n::i18n!("../openlogi-ui/locales", fallback = "en");
 
 mod backlight;
+mod edge;
 mod ipc;
 mod lock_key;
 mod notice;
 mod platform;
+mod popup;
 mod ring;
 mod session;
 
@@ -212,10 +214,7 @@ fn main() -> Result<()> {
                         .iter()
                         .all(|handle| handle.downcast::<BacklightView>().is_none())
                     {
-                        let options = backlight::window_options(cx);
-                        let opened = cx.open_window(options, |_, cx| {
-                            cx.new(|_| BacklightView::new(observation.clone()))
-                        });
+                        let opened = backlight::open(cx, &observation);
                         debug!(success = opened.is_ok(), "backlight window opened");
                     }
                 });

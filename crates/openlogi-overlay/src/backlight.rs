@@ -1,8 +1,8 @@
 //! Compact transient keyboard-backlight indicator.
 
 use gpui::{
-    App, Bounds, Context, IntoElement, ParentElement, Render, Size, Styled, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, px,
+    App, AppContext as _, Context, IntoElement, ParentElement, Render, Styled, Window, div, px,
+    size,
 };
 use openlogi_core::hid::backlight::max_backlight_level;
 use openlogi_ipc::BacklightObservation;
@@ -69,21 +69,18 @@ fn relative_level(level: u8, max_level: u8) -> f32 {
     }
 }
 
-pub(crate) fn window_options(cx: &mut App) -> WindowOptions {
-    let bounds = Bounds::centered(None, Size::new(px(280.0), px(88.0)), cx);
-    WindowOptions {
-        titlebar: None,
-        focus: false,
-        show: true,
-        kind: WindowKind::PopUp,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Transparent,
-        app_id: Some("openlogi-backlight-osd".to_string()),
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        ..WindowOptions::default()
-    }
+/// Open the indicator on the platform edge of the primary display.
+pub(crate) fn open(
+    cx: &mut App,
+    observation: &BacklightObservation,
+) -> anyhow::Result<gpui::WindowHandle<BacklightView>> {
+    let observation = observation.clone();
+    crate::popup::open(
+        cx,
+        "openlogi-backlight-osd",
+        size(px(280.0), px(88.0)),
+        move |_, cx| cx.new(|_| BacklightView::new(observation.clone())),
+    )
 }
 
 #[cfg(test)]

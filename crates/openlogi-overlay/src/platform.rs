@@ -8,9 +8,18 @@ mod placement;
 mod windows;
 
 #[cfg(not(target_os = "windows"))]
-pub(crate) use placement::{NoticePlacement, RingPlacement};
+pub(crate) use placement::{NoticePlacement, RingPlacement, card_attempts};
 #[cfg(target_os = "windows")]
-pub(crate) use windows::{NoticePlacement, RingPlacement};
+pub(crate) use windows::{NoticePlacement, RingPlacement, card_attempts};
+
+/// Which display a transient card is placed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PopupMonitor {
+    /// The display under the pointer. Notices already use this.
+    Cursor,
+    /// The primary display, which a centred indicator already targets.
+    Primary,
+}
 
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -285,6 +294,47 @@ pub fn usable_area(display: &CursorDisplay) -> Option<gpui::Bounds<gpui::Pixels>
 /// Linux resolves no native display, so there is no usable area to report.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn usable_area(_display: &CursorDisplay) -> Option<gpui::Bounds<gpui::Pixels>> {
+    None
+}
+
+/// The primary display's usable area, in that display's own top-left space.
+///
+/// This is the display a centred indicator already targets, without the menu
+/// bar, notch, or Dock. Other platforms have no AppKit visible frame; callers
+/// use the GPUI display bounds, and Windows uses the monitor work area.
+#[cfg(target_os = "macos")]
+pub(crate) fn primary_usable_area() -> Option<gpui::Bounds<gpui::Pixels>> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+
+    let marker = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(marker);
+    let primary = screens.firstObject()?;
+    let (frame, visible) = (primary.frame(), primary.visibleFrame());
+    let primary_height = frame.size.height;
+    let frame_top = frame.origin.y + frame.size.height;
+    placement::usable_in_display(
+        placement::CocoaRect {
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: frame.size.width,
+            height: frame.size.height,
+        },
+        placement::CocoaRect {
+            x: visible.origin.x,
+            y: visible.origin.y,
+            width: visible.size.width,
+            height: visible.size.height,
+        },
+        primary_height,
+        (frame.origin.x, primary_height - frame_top),
+    )
+}
+
+/// No AppKit visible frame on Linux. Windows reads the monitor work area
+/// instead, so it does not have this function.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(crate) fn primary_usable_area() -> Option<gpui::Bounds<gpui::Pixels>> {
     None
 }
 

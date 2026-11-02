@@ -45,13 +45,27 @@ impl RingPlacement {
 
 impl NoticePlacement {
     pub(crate) fn capture(_cx: &mut App, size: Size<Pixels>) -> Result<Self> {
-        let sample = sample_monitor()?;
+        Self::capture_on(
+            size,
+            crate::notice::NOTICE_APP_ID,
+            super::super::PopupMonitor::Cursor,
+        )
+    }
+
+    fn capture_on(
+        size: Size<Pixels>,
+        app_id: &str,
+        monitor: super::super::PopupMonitor,
+    ) -> Result<Self> {
+        let sample = sample_monitor(monitor)?;
         Ok(Self {
             display_id: sample.display_id,
             display: sample.display,
             work: sample.work,
             dpi: sample.dpi,
             size,
+            edge: crate::edge::Edge::platform_default(),
+            app_id: app_id.to_owned(),
         })
     }
 
@@ -64,25 +78,35 @@ impl NoticePlacement {
 
 /// One reading of the cursor and the monitor under it.
 struct MonitorSample {
-    display_id: DisplayId,
+    /// Native monitor id. The Windows GPUI backend uses the same `HMONITOR`.
+    pub(super) display_id: DisplayId,
     /// The cursor, or the monitor's centre when it could not be read.
     cursor: Point<DevicePixels>,
     /// The whole monitor (`rcMonitor`).
-    display: Bounds<DevicePixels>,
+    pub(super) display: Bounds<DevicePixels>,
     /// The monitor without the taskbar (`rcWork`).
-    work: Bounds<DevicePixels>,
-    dpi: u32,
+    pub(super) work: Bounds<DevicePixels>,
+    /// Effective DPI of the monitor.
+    pub(super) dpi: u32,
+}
+
+/// The primary monitor, for a card that is not following the pointer.
+#[cfg(target_os = "windows")]
+pub(super) fn primary_area() -> Result<MonitorSample> {
+    sample_monitor(super::super::PopupMonitor::Primary)
 }
 
 #[expect(
     unsafe_code,
     reason = "read-only Win32 cursor and monitor queries with checked outputs"
 )]
-fn sample_monitor() -> Result<MonitorSample> {
+fn sample_monitor(monitor: super::super::PopupMonitor) -> Result<MonitorSample> {
     let mut cursor = POINT::default();
     // SAFETY: cursor is writable for the duration of the call. This GPUI
     // process is PerMonitorV2-aware, so GetCursorPos returns physical pixels.
-    let has_cursor = unsafe { GetCursorPos(&raw mut cursor) } != 0;
+    // A primary-display card does not read the pointer.
+    let has_cursor = monitor == super::super::PopupMonitor::Cursor
+        && unsafe { GetCursorPos(&raw mut cursor) } != 0;
     let monitor = if has_cursor {
         // SAFETY: POINT is passed by value. Use this same sample for both
         // selection and positioning, never a second cursor read.

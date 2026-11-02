@@ -5,7 +5,8 @@ use gpui::{
 };
 use tracing::warn;
 
-use crate::notice::{bottom_centre, notice_window_options};
+use crate::edge::{Edge, origin_px};
+use crate::notice::{NOTICE_APP_ID, card_window_options};
 use crate::ring::{Placement, WINDOW_SIZE, clamp_window_origin, ring_window_options};
 
 /// Captured placement for one invocation, before its windows are opened.
@@ -76,15 +77,25 @@ pub(crate) struct NoticePlacement {
 }
 
 impl NoticePlacement {
+    pub(crate) fn capture(cx: &mut gpui::App, size: Size<Pixels>) -> anyhow::Result<Self> {
+        Self::capture_with(cx, size, NOTICE_APP_ID, super::PopupMonitor::Cursor)
+    }
+
     #[expect(
         clippy::unnecessary_wraps,
-        reason = "the Windows placement capture is fallible"
+        reason = "the Windows placement capture is fallible and shares this signature"
     )]
-    pub(crate) fn capture(cx: &mut gpui::App, size: Size<Pixels>) -> anyhow::Result<Self> {
+    fn capture_with(
+        cx: &mut gpui::App,
+        size: Size<Pixels>,
+        app_id: &str,
+        monitor: super::PopupMonitor,
+    ) -> anyhow::Result<Self> {
+        let edge = Edge::platform_default();
         let attempts = if on_wayland() {
-            wayland_notice_windows(size)
+            wayland_card_windows(size, app_id, edge)
         } else {
-            vec![positioned_notice(cx, size)]
+            vec![positioned_card(cx, size, app_id, monitor, edge)]
         };
         Ok(Self { attempts })
     }
@@ -180,18 +191,66 @@ fn positioned_window(cx: &gpui::App) -> (WindowOptions, Placement) {
     (options, Placement::Window)
 }
 
-/// The notice at the bottom centre of the cursor's display, above the Dock
-/// where the platform reports it.
-fn positioned_notice(cx: &gpui::App, size: Size<Pixels>) -> WindowOptions {
-    let screen = cursor_screen(cx);
-    let origin = screen
-        .usable
-        .or(screen.bounds)
-        .map_or_else(Point::default, |area| bottom_centre(area, size));
+/// A card on `monitor` at `edge`.
+///
+/// Top and bottom use the usable area when the platform reports one.
+/// [`Edge::Centre`] uses the whole display.
+fn positioned_card(
+    cx: &gpui::App,
+    size: Size<Pixels>,
+    app_id: &str,
+    monitor: super::PopupMonitor,
+    edge: Edge,
+) -> WindowOptions {
+    let screen = match monitor {
+        super::PopupMonitor::Cursor => cursor_screen(cx),
+        super::PopupMonitor::Primary => primary_screen(cx),
+    };
+    let area = if edge.in_full_display() {
+        screen.bounds
+    } else {
+        screen.usable.or(screen.bounds)
+    };
+    let origin = area.map_or_else(Point::default, |area| origin_px(edge, area, size));
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(origin, size))),
         display_id: screen.display_id,
-        ..notice_window_options()
+        ..card_window_options(app_id)
+    }
+}
+
+/// The primary display, in the same shape [`cursor_screen`] reports.
+///
+/// This is the display `Bounds::centered(None, ..)` already picks.
+fn primary_screen(cx: &gpui::App) -> CursorScreen {
+    let display = cx.primary_display();
+    CursorScreen {
+        display_id: display.as_ref().map(|display| display.id()),
+        cursor: None,
+        bounds: display.as_ref().map(|display| display.bounds()),
+        usable: super::primary_usable_area(),
+    }
+}
+
+/// Windows to try for a card on `edge`, best first.
+///
+/// [`Edge::Centre`] is one ordinary window in the middle of the primary
+/// display. The platform edges try a layer-shell surface on Wayland first.
+pub(crate) fn card_attempts(
+    cx: &gpui::App,
+    app_id: &str,
+    size: Size<Pixels>,
+    edge: Edge,
+) -> Vec<WindowOptions> {
+    let plain = positioned_card(cx, size, app_id, super::PopupMonitor::Primary, edge);
+    if edge.in_full_display() || !on_wayland() {
+        vec![plain]
+    } else {
+        let bounds = Some(WindowBounds::Windowed(Bounds::new(Point::default(), size)));
+        layer_shell_card(app_id, bounds, edge)
+            .into_iter()
+            .chain([plain])
+            .collect()
     }
 }
 
@@ -199,43 +258,58 @@ fn positioned_notice(cx: &gpui::App, size: Size<Pixels>) -> WindowOptions {
 /// sanctioned way to put one at a screen edge, so try that first; a
 /// compositor without `wlr-layer-shell` gets an ordinary window it places
 /// itself.
-fn wayland_notice_windows(size: Size<Pixels>) -> Vec<WindowOptions> {
+fn wayland_card_windows(size: Size<Pixels>, app_id: &str, edge: Edge) -> Vec<WindowOptions> {
     let bounds = Some(WindowBounds::Windowed(Bounds::new(Point::default(), size)));
     let plain = WindowOptions {
         window_bounds: bounds,
-        ..notice_window_options()
+        ..card_window_options(app_id)
     };
-    layer_shell_notice(bounds)
+    layer_shell_card(app_id, bounds, edge)
         .into_iter()
         .chain([plain])
         .collect()
 }
 
-/// The notice as a layer-shell surface on the bottom edge, above other
+/// The card as a layer-shell surface on the platform edge, above other
 /// windows and never taking the keyboard, unless the compositor refused one.
 #[cfg(target_os = "linux")]
-fn layer_shell_notice(bounds: Option<WindowBounds>) -> Option<WindowOptions> {
+fn layer_shell_card(
+    app_id: &str,
+    bounds: Option<WindowBounds>,
+    edge: Edge,
+) -> Option<WindowOptions> {
     use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
 
     if super::layer_shell_refused() {
         return None;
     }
+    let anchor = match edge {
+        Edge::Top => Anchor::TOP,
+        Edge::Bottom => Anchor::BOTTOM,
+        // The effect list stays an ordinary centred window.
+        Edge::Centre => return None,
+    };
+    let (top, right, bottom, left) = edge.inset(crate::edge::EDGE_MARGIN);
     Some(WindowOptions {
         kind: gpui::WindowKind::LayerShell(LayerShellOptions {
-            namespace: crate::notice::NOTICE_APP_ID.to_string(),
+            namespace: app_id.to_string(),
             layer: Layer::Overlay,
-            anchor: Anchor::BOTTOM,
-            margin: Some((px(0.0), px(0.0), px(crate::notice::BOTTOM_MARGIN), px(0.0))),
+            anchor,
+            margin: Some((px(top), px(right), px(bottom), px(left))),
             keyboard_interactivity: KeyboardInteractivity::None,
             ..LayerShellOptions::default()
         }),
         window_bounds: bounds,
-        ..notice_window_options()
+        ..card_window_options(app_id)
     })
 }
 
 #[cfg(not(target_os = "linux"))]
-const fn layer_shell_notice(_bounds: Option<WindowBounds>) -> Option<WindowOptions> {
+const fn layer_shell_card(
+    _app_id: &str,
+    _bounds: Option<WindowBounds>,
+    _edge: Edge,
+) -> Option<WindowOptions> {
     None
 }
 

@@ -3,10 +3,12 @@
 //! monitor selection nor HWND positioning can use logical containment.
 
 use gpui::{
-    Bounds, DevicePixels, DisplayId, Pixels, Point, Size, WindowBounds, WindowOptions, point, size,
+    Bounds, DevicePixels, DisplayId, Pixels, Point, Size, WindowBounds, WindowOptions, point, px,
+    size,
 };
 
-use crate::notice::{BOTTOM_MARGIN, notice_window_options};
+use crate::edge::{EDGE_MARGIN, Edge, origin_device};
+use crate::notice::card_window_options;
 use crate::ring::{Placement, WINDOW_SIZE, ring_window_options};
 
 #[cfg(target_os = "windows")]
@@ -81,6 +83,12 @@ pub(crate) struct NoticePlacement {
     dpi: u32,
     /// The notice window's size in logical pixels.
     size: Size<Pixels>,
+    /// Which screen edge the card sits on. Production uses the platform
+    /// default, which is the bottom on Windows; tests place either edge.
+    edge: Edge,
+    /// Window identity baked into the options (`openlogi-notice`, and the
+    /// indicator ids for the other cards).
+    app_id: String,
 }
 
 impl NoticePlacement {
@@ -93,11 +101,11 @@ impl NoticePlacement {
                 self.dpi,
             ))),
             show: true,
-            ..notice_window_options()
+            ..card_window_options(&self.app_id)
         }]
     }
 
-    /// The notice at the bottom centre of the work area, above the taskbar.
+    /// The notice on its [`Edge`] of the work area, centred, past the taskbar.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "notice dimensions scaled by a native display DPI fit in screen-sized i32 pixels"
@@ -108,18 +116,94 @@ impl NoticePlacement {
         };
         let width = scaled(self.size.width.as_f32());
         let height = scaled(self.size.height.as_f32());
-        let work = self.work;
-        let desired = point(
-            work.left() + DevicePixels((work.size.width.0 - width.0) / 2),
-            work.bottom() - height - scaled(BOTTOM_MARGIN),
+        let origin = origin_device(
+            self.edge,
+            self.work,
+            size(width, height),
+            scaled(EDGE_MARGIN),
         );
-        // A work area smaller than the notice anchors it to the top-left, as
-        // an undersized display does for the ring.
-        let max = point(
-            (work.right() - width).max(work.left()),
-            (work.bottom() - height).max(work.top()),
-        );
-        Bounds::new(desired.clamp(&work.origin, &max), size(width, height))
+        Bounds::new(origin, size(width, height))
+    }
+}
+
+/// Logical bounds of a card on `edge` of `work`, for a window GPUI will open
+/// on that monitor.
+///
+/// Notices go through [`NoticePlacement::bounds`] and a native move. The
+/// backlight and lock-key indicators open at these bounds directly. Both use
+/// [`origin_device`].
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "card dimensions scaled by a native display DPI fit in screen-sized i32 pixels"
+)]
+pub(crate) fn card_bounds_in_work(
+    work: Bounds<DevicePixels>,
+    dpi: u32,
+    logical: Size<Pixels>,
+    edge: Edge,
+) -> Bounds<Pixels> {
+    let scaled =
+        |value: f32| DevicePixels((f64::from(value) * f64::from(dpi) / 96.0).round() as i32);
+    let device = Bounds::new(
+        origin_device(
+            edge,
+            work,
+            size(
+                scaled(logical.width.as_f32()),
+                scaled(logical.height.as_f32()),
+            ),
+            scaled(EDGE_MARGIN),
+        ),
+        size(
+            scaled(logical.width.as_f32()),
+            scaled(logical.height.as_f32()),
+        ),
+    );
+    device.to_pixels(scale_factor(dpi))
+}
+
+/// A card on `edge` of the primary monitor.
+///
+/// Top and bottom use the work area, so the card clears the taskbar.
+/// [`Edge::Centre`] uses the whole monitor.
+#[cfg(target_os = "windows")]
+pub(crate) fn card_attempts(
+    cx: &gpui::App,
+    app_id: &str,
+    logical: Size<Pixels>,
+    edge: Edge,
+) -> Vec<WindowOptions> {
+    let options = native::primary_area().map_or_else(
+        |_| gpui_card(cx, app_id, logical, edge),
+        |area| {
+            let rect = if edge.in_full_display() {
+                area.display
+            } else {
+                area.work
+            };
+            let bounds = card_bounds_in_work(rect, area.dpi, logical, edge);
+            WindowOptions {
+                display_id: Some(area.display_id),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..crate::notice::card_window_options(app_id)
+            }
+        },
+    );
+    vec![options]
+}
+
+/// Primary-display fallback when the monitor cannot be read.
+#[cfg(target_os = "windows")]
+fn gpui_card(cx: &gpui::App, app_id: &str, logical: Size<Pixels>, edge: Edge) -> WindowOptions {
+    let display = cx.primary_display();
+    let display_id = display.as_ref().map(|display| display.id());
+    let origin = display.map_or(Point::default(), |display| {
+        crate::edge::origin_px(edge, display.bounds(), logical)
+    });
+    WindowOptions {
+        display_id,
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(origin, logical))),
+        ..crate::notice::card_window_options(app_id)
     }
 }
 
@@ -294,6 +378,8 @@ mod tests {
             dpi,
             // One card: 344×88 logical pixels.
             size: stack_size(1),
+            edge: Edge::Bottom,
+            app_id: "openlogi-notice".to_owned(),
         }
     }
 
@@ -341,5 +427,42 @@ mod tests {
     fn a_work_area_smaller_than_the_notice_anchors_it_top_left() {
         let bounds = notice((0, 0, 200, 60), (0, 0, 200, 60), 96).bounds(96);
         assert_eq!(bounds.origin, point(DevicePixels(0), DevicePixels(0)));
+        let mut on_top = notice((0, 0, 200, 60), (0, 0, 200, 60), 96);
+        on_top.edge = Edge::Top;
+        assert_eq!(
+            on_top.bounds(96).origin,
+            point(DevicePixels(0), DevicePixels(0))
+        );
+    }
+
+    #[test]
+    fn a_notice_can_sit_under_the_top_of_a_shifted_work_area() {
+        // A monitor right of the primary, work area starting 80px down.
+        let mut placement = notice((1920, 0, 4480, 1440), (1920, 80, 4480, 1400), 96);
+        placement.edge = Edge::Top;
+        let bounds = placement.bounds(96);
+        // Work width 2560, window 344: (2560 - 344) / 2 = 1108, plus 1920.
+        // Top is the work top plus the 48px margin.
+        assert_eq!(bounds.origin, point(DevicePixels(3028), DevicePixels(128)));
+    }
+
+    #[test]
+    fn a_card_on_another_monitor_keeps_the_edge_in_logical_pixels() {
+        let work = rect_bounds((-2560, 105, 0, 1497));
+        let card = size(px(360.0), px(72.0));
+        // 120 DPI is 1.25×. Device size 450×90. Work width 2560, so the
+        // centre is (-2560 + (2560 - 450) / 2) = -1505. Bottom:
+        // 1497 - 90 - 60 = 1347. Divided by 1.25 those are logical -1204 and
+        // 1077.6.
+        let bottom = card_bounds_in_work(work, 120, card, Edge::Bottom);
+        assert_eq!(bottom.origin, point(px(-1204.0), px(1077.6)));
+        assert_eq!(bottom.size, size(px(360.0), px(72.0)));
+        // Top: device y = 105 + 60 = 165, logical 165 / 1.25 = 132.
+        let top = card_bounds_in_work(work, 120, card, Edge::Top);
+        assert_eq!(top.origin, point(px(-1204.0), px(132.0)));
+        // Centre ignores the margin: device y = 105 + (1392 - 90) / 2 = 756,
+        // and 756 / 1.25 = 604.8.
+        let centre = card_bounds_in_work(work, 120, card, Edge::Centre);
+        assert_eq!(centre.origin, point(px(-1204.0), px(604.8)));
     }
 }

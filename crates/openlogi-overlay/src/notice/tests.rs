@@ -1,4 +1,4 @@
-use gpui::{Bounds, point, px, size};
+use gpui::{px, size};
 use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, DeviceKind};
 use openlogi_ipc::{Notice, NoticeKind};
 
@@ -126,23 +126,6 @@ fn the_window_fits_its_cards_and_their_shadow() {
         stack_size(0),
         stack_size(1),
         "a window is never sized for less than one card"
-    );
-}
-
-#[test]
-fn the_stack_sits_centred_above_the_bottom_edge() {
-    let area = Bounds::new(point(px(0.0), px(37.0)), size(px(1512.0), px(875.0)));
-    let origin = bottom_centre(area, stack_size(1));
-    // (1512 - 344) / 2 = 584; 37 + 875 - 88 - 48 = 776.
-    assert_eq!(origin, point(px(584.0), px(776.0)));
-}
-
-#[test]
-fn the_stack_stays_inside_an_area_too_small_for_it() {
-    let area = Bounds::new(point(px(100.0), px(50.0)), size(px(200.0), px(60.0)));
-    assert_eq!(
-        bottom_centre(area, stack_size(1)),
-        point(px(100.0), px(50.0))
     );
 }
 
