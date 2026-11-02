@@ -31,10 +31,11 @@ use openlogi_core::device::ConnectionLink;
 /// [Material Symbols](https://fonts.google.com/icons) by Google, Apache
 /// License 2.0. The rest of the app stays on Lucide.
 ///
+/// The battery cards draw Lucide's `battery-{full,medium,low,warning,charging}`.
 /// [Material Symbols](https://fonts.google.com/icons) (Apache-2.0) supply the
-/// battery glyphs and the connection popup's device and link glyphs, each in
-/// a `-rounded` and a `-sharp` cut. `bolt.svg` and `unifying.svg` are the
-/// Logi Bolt and Unifying receiver marks. Every other icon stays Lucide.
+/// connection popup's vertical battery and link glyphs, each in a `-rounded`
+/// and a `-sharp` cut. `bolt.svg` and `unifying.svg` are the Logi Bolt and
+/// Unifying receiver marks. Every other icon stays Lucide.
 ///
 /// `x.svg` duplicates `IconName::Close` on purpose: the overlay does not depend
 /// on gpui-component, and its ring cancel target has to match the settings-side
@@ -64,26 +65,11 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/battery-5-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-5-bar-sharp.svg"))),
     ("action-icons/battery-6-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-6-bar-rounded.svg"))),
     ("action-icons/battery-6-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-6-bar-sharp.svg"))),
-    ("action-icons/battery-android-0-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-rounded.svg"))),
-    ("action-icons/battery-android-0-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-sharp.svg"))),
-    ("action-icons/battery-android-1-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-1-rounded.svg"))),
-    ("action-icons/battery-android-1-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-1-sharp.svg"))),
-    ("action-icons/battery-android-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-2-rounded.svg"))),
-    ("action-icons/battery-android-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-2-sharp.svg"))),
-    ("action-icons/battery-android-3-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-3-rounded.svg"))),
-    ("action-icons/battery-android-3-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-3-sharp.svg"))),
-    ("action-icons/battery-android-4-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-4-rounded.svg"))),
-    ("action-icons/battery-android-4-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-4-sharp.svg"))),
-    ("action-icons/battery-android-5-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-5-rounded.svg"))),
-    ("action-icons/battery-android-5-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-5-sharp.svg"))),
-    ("action-icons/battery-android-6-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-6-rounded.svg"))),
-    ("action-icons/battery-android-6-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-6-sharp.svg"))),
-    ("action-icons/battery-android-alert-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-rounded.svg"))),
-    ("action-icons/battery-android-alert-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-sharp.svg"))),
-    ("action-icons/battery-android-bolt-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-bolt-rounded.svg"))),
-    ("action-icons/battery-android-bolt-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-bolt-sharp.svg"))),
-    ("action-icons/battery-android-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-rounded.svg"))),
-    ("action-icons/battery-android-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-sharp.svg"))),
+    ("action-icons/battery-charging.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging.svg"))),
+    ("action-icons/battery-full.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full.svg"))),
+    ("action-icons/battery-low.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-low.svg"))),
+    ("action-icons/battery-medium.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-medium.svg"))),
+    ("action-icons/battery-warning.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-warning.svg"))),
     ("action-icons/battery-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-rounded.svg"))),
     ("action-icons/battery-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-sharp.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
@@ -287,98 +273,47 @@ impl BatteryGlyph {
     }
 }
 
-/// The low-battery notice glyph, `battery-android-alert`.
-const LOW_BATTERY: BatteryGlyph = BatteryGlyph {
-    rounded: "action-icons/battery-android-alert-rounded.svg",
-    sharp: "action-icons/battery-android-alert-sharp.svg",
-};
+/// Lucide's battery glyphs for the horizontal battery cards. Lucide ships
+/// one cut, so these do not follow [`MaterialSymbolStyle`].
+const BATTERY_LOW: &str = "action-icons/battery-low.svg";
+const BATTERY_MEDIUM: &str = "action-icons/battery-medium.svg";
+const BATTERY_FULL: &str = "action-icons/battery-full.svg";
+const BATTERY_WARNING: &str = "action-icons/battery-warning.svg";
+const BATTERY_CHARGING: &str = "action-icons/battery-charging.svg";
 
-/// A full horizontal battery, for the fully-charged popup.
-const BATTERY_FULL: BatteryGlyph = BatteryGlyph {
-    rounded: "action-icons/battery-android-full-rounded.svg",
-    sharp: "action-icons/battery-android-full-sharp.svg",
-};
+/// The low-battery notice glyph: `battery-warning`.
+#[must_use]
+pub const fn low_battery_icon() -> &'static str {
+    BATTERY_WARNING
+}
 
-/// Discharging glyphs, empty to full. Index `0` is `battery-android-0`;
-/// index `7` is [`BATTERY_FULL`].
-///
-/// `percentage * 8 / 100` (clamped to `0..=7`) splits `0..=100` into eight
-/// equal bands:
+/// The fully-charged glyph: `battery-full`.
+#[must_use]
+pub const fn battery_full_icon() -> &'static str {
+    BATTERY_FULL
+}
+
+/// The discharging battery glyph for `percentage` (`0..=100`), in thirds:
 ///
 /// | charge | glyph |
 /// | --- | --- |
-/// | 0..=12 | `battery-android-0` |
-/// | 13..=24 | `battery-android-1` |
-/// | 25..=37 | `battery-android-2` |
-/// | 38..=49 | `battery-android-3` |
-/// | 50..=62 | `battery-android-4` |
-/// | 63..=74 | `battery-android-5` |
-/// | 75..=87 | `battery-android-6` |
-/// | 88..=100 | `battery-android-full` |
-const BATTERY_LEVELS: [BatteryGlyph; 8] = [
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-0-rounded.svg",
-        sharp: "action-icons/battery-android-0-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-1-rounded.svg",
-        sharp: "action-icons/battery-android-1-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-2-rounded.svg",
-        sharp: "action-icons/battery-android-2-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-3-rounded.svg",
-        sharp: "action-icons/battery-android-3-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-4-rounded.svg",
-        sharp: "action-icons/battery-android-4-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-5-rounded.svg",
-        sharp: "action-icons/battery-android-5-sharp.svg",
-    },
-    BatteryGlyph {
-        rounded: "action-icons/battery-android-6-rounded.svg",
-        sharp: "action-icons/battery-android-6-sharp.svg",
-    },
-    BATTERY_FULL,
-];
-
-/// The charging glyph: the Android battery body with a bolt, the family the
-/// discharging and full glyphs use, so every battery card draws one shape.
-/// The card's bar shows the charge, so the glyph does not step with it.
-const BATTERY_CHARGING: BatteryGlyph = BatteryGlyph {
-    rounded: "action-icons/battery-android-bolt-rounded.svg",
-    sharp: "action-icons/battery-android-bolt-sharp.svg",
-};
-
-/// The low-battery notice glyph for `style`.
+/// | 0..=33 | `battery-low` |
+/// | 34..=66 | `battery-medium` |
+/// | 67..=100 | `battery-full` |
 #[must_use]
-pub fn low_battery_icon(style: MaterialSymbolStyle) -> &'static str {
-    LOW_BATTERY.path(style)
+pub const fn battery_level_icon(percentage: u8) -> &'static str {
+    match percentage {
+        0..=33 => BATTERY_LOW,
+        34..=66 => BATTERY_MEDIUM,
+        _ => BATTERY_FULL,
+    }
 }
 
-/// The fully-charged glyph for `style`: `battery-android-full`.
+/// The charging battery glyph: `battery-charging`. The card's bar shows the
+/// charge, so the glyph does not step with it.
 #[must_use]
-pub fn battery_full_icon(style: MaterialSymbolStyle) -> &'static str {
-    BATTERY_FULL.path(style)
-}
-
-/// The discharging battery glyph for `percentage` (`0..=100`) in `style`.
-#[must_use]
-pub fn battery_level_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
-    let percentage = u16::from(percentage.min(100));
-    let step = usize::from((percentage * 8 / 100).min(7));
-    BATTERY_LEVELS[step].path(style)
-}
-
-/// The charging battery glyph in `style`: `battery-android-bolt`.
-#[must_use]
-pub fn battery_charging_icon(style: MaterialSymbolStyle) -> &'static str {
-    BATTERY_CHARGING.path(style)
+pub const fn battery_charging_icon() -> &'static str {
+    BATTERY_CHARGING
 }
 
 /// Material Symbol for a backlight at the low end of its scale.
@@ -448,8 +383,9 @@ const BATTERY_BAR_FULL: BatteryGlyph = BatteryGlyph {
 };
 
 /// Vertical battery glyphs, empty to full, for the connection popup.
-/// Index `0` is `battery-0-bar`; index `7` is [`BATTERY_BAR_FULL`]. The
-/// bands are [`BATTERY_LEVELS`]'.
+/// Index `0` is `battery-0-bar`; index `7` is [`BATTERY_BAR_FULL`].
+/// `percentage * 8 / 100` (clamped to `0..=7`) splits `0..=100` into eight
+/// equal bands.
 const BATTERY_BARS: [BatteryGlyph; 8] = [
     BatteryGlyph {
         rounded: "action-icons/battery-0-bar-rounded.svg",
@@ -483,7 +419,7 @@ const BATTERY_BARS: [BatteryGlyph; 8] = [
 ];
 
 /// The vertical battery glyph for `percentage` (`0..=100`) in `style`, in
-/// the same eight bands as [`battery_level_icon`].
+/// the eight bands of [`BATTERY_BARS`].
 #[must_use]
 pub fn battery_bar_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
     let percentage = u16::from(percentage.min(100));
@@ -605,11 +541,9 @@ mod tests {
 
     #[test]
     fn the_low_battery_notice_icon_is_embedded() {
-        for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
-            let path = low_battery_icon(style);
-            let loaded = ActionIcons.load(path);
-            assert!(matches!(loaded, Ok(Some(_))), "{path} is missing");
-        }
+        let path = low_battery_icon();
+        let loaded = ActionIcons.load(path);
+        assert!(matches!(loaded, Ok(Some(_))), "{path} is missing");
     }
 
     #[test]
@@ -683,54 +617,34 @@ mod tests {
     }
 
     #[test]
-    fn the_battery_glyphs_follow_the_percentage_bands() {
-        for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
-            let suffix = style.suffix();
-            let level = |percentage, name| {
-                assert_eq!(
-                    battery_level_icon(percentage, style),
-                    format!("action-icons/{name}-{suffix}.svg"),
-                    "{percentage}% {suffix}"
-                );
-            };
-            // Lower and upper edge of each equal band.
-            level(0, "battery-android-0");
-            level(12, "battery-android-0");
-            level(13, "battery-android-1");
-            level(24, "battery-android-1");
-            level(25, "battery-android-2");
-            level(37, "battery-android-2");
-            level(38, "battery-android-3");
-            level(49, "battery-android-3");
-            level(50, "battery-android-4");
-            level(62, "battery-android-4");
-            level(63, "battery-android-5");
-            level(74, "battery-android-5");
-            level(75, "battery-android-6");
-            level(87, "battery-android-6");
-            level(88, "battery-android-full");
-            level(100, "battery-android-full");
-
+    fn the_battery_glyphs_follow_the_percentage_thirds() {
+        let level = |percentage, name| {
             assert_eq!(
-                battery_charging_icon(style),
-                format!("action-icons/battery-android-bolt-{suffix}.svg"),
-                "charging stays in the Android battery family"
+                battery_level_icon(percentage),
+                format!("action-icons/{name}.svg"),
+                "{percentage}%"
             );
-            assert!(embedded_icon(battery_charging_icon(style)).is_some());
+        };
+        // Lower and upper edge of each third.
+        level(0, "battery-low");
+        level(33, "battery-low");
+        level(34, "battery-medium");
+        level(66, "battery-medium");
+        level(67, "battery-full");
+        level(100, "battery-full");
+        level(250, "battery-full");
 
-            assert_eq!(
-                battery_full_icon(style),
-                format!("action-icons/battery-android-full-{suffix}.svg")
-            );
-            assert!(
-                embedded_icon(low_battery_icon(style)).is_some(),
-                "{}",
-                low_battery_icon(style)
-            );
-            assert_ne!(
-                battery_level_icon(50, MaterialSymbolStyle::Rounded),
-                battery_level_icon(50, MaterialSymbolStyle::Sharp)
-            );
+        assert_eq!(battery_full_icon(), "action-icons/battery-full.svg");
+        assert_eq!(battery_charging_icon(), "action-icons/battery-charging.svg");
+        assert_eq!(low_battery_icon(), "action-icons/battery-warning.svg");
+        for path in [
+            battery_level_icon(0),
+            battery_level_icon(50),
+            battery_full_icon(),
+            battery_charging_icon(),
+            low_battery_icon(),
+        ] {
+            assert!(embedded_icon(path).is_some(), "{path}");
         }
     }
 

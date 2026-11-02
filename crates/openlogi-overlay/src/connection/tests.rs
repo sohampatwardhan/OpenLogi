@@ -87,7 +87,11 @@ fn the_battery_glyph_follows_the_reading_and_the_cut() {
         battery_glyph(&battery(Some(50), BatteryLevel::Good), sharp),
         battery_glyph(&battery(Some(50), BatteryLevel::Good), rounded)
     );
-    assert_ne!(battery_bar_icon(100, rounded), battery_full_icon(rounded));
+    assert_ne!(
+        battery_bar_icon(100, rounded),
+        battery_full_icon(),
+        "the vertical full battery is its own glyph"
+    );
 }
 
 fn shown(cx: &mut gpui::TestAppContext) -> Vec<ConnectionEvent> {

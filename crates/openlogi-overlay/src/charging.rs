@@ -14,7 +14,7 @@ use gpui::{
 use openlogi_core::device::BatteryLevel;
 use openlogi_ipc::{ChargingEvent, ChargingPopup};
 use openlogi_ui::action_icons::{
-    MaterialSymbolStyle, battery_charging_icon, battery_full_icon, battery_level_icon,
+    battery_charging_icon, battery_full_icon, battery_level_icon, low_battery_icon,
 };
 use tracing::warn;
 
@@ -78,17 +78,19 @@ pub(crate) fn charge_fraction(percentage: Option<u8>) -> Option<f32> {
     percentage.map(|percentage| f32::from(percentage.min(100)) / 100.0)
 }
 
-fn glyph(popup: &ChargingPopup, style: MaterialSymbolStyle) -> &'static str {
+/// Lucide's battery glyph for `popup`. A level-only reading draws the third
+/// its level stands for; a critical one draws the warning.
+fn glyph(popup: &ChargingPopup) -> &'static str {
     match popup.event {
-        ChargingEvent::Started => battery_charging_icon(style),
-        ChargingEvent::Full => battery_full_icon(style),
+        ChargingEvent::Started => battery_charging_icon(),
+        ChargingEvent::Full => battery_full_icon(),
         ChargingEvent::Stopped => match popup.percentage {
-            Some(percentage) => battery_level_icon(percentage, style),
+            Some(percentage) => battery_level_icon(percentage),
             None => match popup.level {
-                BatteryLevel::Full => battery_full_icon(style),
-                BatteryLevel::Good => battery_level_icon(70, style),
-                BatteryLevel::Low => battery_level_icon(25, style),
-                BatteryLevel::Critical | BatteryLevel::Unknown => battery_level_icon(0, style),
+                BatteryLevel::Full => battery_full_icon(),
+                BatteryLevel::Good => battery_level_icon(50),
+                BatteryLevel::Low | BatteryLevel::Unknown => battery_level_icon(0),
+                BatteryLevel::Critical => low_battery_icon(),
             },
         },
     }
@@ -205,9 +207,9 @@ fn level_bar(fraction: f32, fill: Hsla) -> gpui::Div {
 }
 
 /// The charging card, shared by the indicator window and the preview board.
-pub(crate) fn charging_card(popup: &ChargingPopup, style: MaterialSymbolStyle) -> gpui::Div {
+pub(crate) fn charging_card(popup: &ChargingPopup) -> gpui::Div {
     battery_card(BatteryCard {
-        icon: glyph(popup, style),
+        icon: glyph(popup),
         colour: glyph_colour(popup),
         copy: charging_copy(popup),
         fraction: charge_fraction(popup.percentage),
@@ -215,8 +217,8 @@ pub(crate) fn charging_card(popup: &ChargingPopup, style: MaterialSymbolStyle) -
 }
 
 impl Render for ChargingView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        charging_card(&self.popup, crate::icons::style(cx))
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        charging_card(&self.popup)
     }
 }
 
@@ -333,36 +335,28 @@ mod tests {
 
     #[test]
     fn every_popup_picks_its_glyph() {
-        let rounded = MaterialSymbolStyle::Rounded;
         for percentage in [Some(15), Some(100), None] {
             assert_eq!(
-                glyph(&popup(ChargingEvent::Started, percentage), rounded),
-                battery_charging_icon(rounded),
+                glyph(&popup(ChargingEvent::Started, percentage)),
+                battery_charging_icon(),
                 "one charging glyph at {percentage:?}: the bar shows the charge"
             );
         }
         assert_eq!(
-            glyph(&popup(ChargingEvent::Full, Some(100)), rounded),
-            battery_full_icon(rounded)
+            glyph(&popup(ChargingEvent::Full, Some(100))),
+            battery_full_icon()
         );
         assert_eq!(
-            glyph(&popup(ChargingEvent::Stopped, Some(10)), rounded),
-            battery_level_icon(10, rounded)
+            glyph(&popup(ChargingEvent::Stopped, Some(10))),
+            battery_level_icon(10)
         );
         assert_eq!(
-            glyph(&popup(ChargingEvent::Stopped, Some(90)), rounded),
-            battery_level_icon(90, rounded)
+            glyph(&popup(ChargingEvent::Stopped, Some(90))),
+            battery_level_icon(90)
         );
         assert_ne!(
-            glyph(&popup(ChargingEvent::Stopped, Some(10)), rounded),
-            glyph(&popup(ChargingEvent::Stopped, Some(90)), rounded)
-        );
-        assert_ne!(
-            glyph(
-                &popup(ChargingEvent::Stopped, Some(90)),
-                MaterialSymbolStyle::Sharp
-            ),
-            glyph(&popup(ChargingEvent::Stopped, Some(90)), rounded)
+            glyph(&popup(ChargingEvent::Stopped, Some(10))),
+            glyph(&popup(ChargingEvent::Stopped, Some(90)))
         );
     }
 

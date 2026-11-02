@@ -18,7 +18,7 @@ use gpui::{
     WindowOptions, div, px, size,
 };
 use openlogi_ipc::{Notice, NoticeKind};
-use openlogi_ui::action_icons::{MaterialSymbolStyle, low_battery_icon};
+use openlogi_ui::action_icons::low_battery_icon;
 use tracing::warn;
 
 use crate::edge::{self, Edge};
@@ -212,14 +212,14 @@ fn close_notice_windows(cx: &mut gpui::App) {
 /// The low-battery card, shared by the notice window and the preview board.
 ///
 /// The same two rows as the charging popup, in the warning amber.
-pub(crate) fn notice_card(notice: &Notice, style: MaterialSymbolStyle) -> gpui::Div {
+pub(crate) fn notice_card(notice: &Notice) -> gpui::Div {
     let fraction = match &notice.kind {
         NoticeKind::LowBattery { battery, .. } => {
             crate::charging::charge_fraction(battery.percentage)
         }
     };
     crate::charging::battery_card(crate::charging::BatteryCard {
-        icon: low_battery_icon(style),
+        icon: low_battery_icon(),
         colour: WARNING,
         copy: notice_text(&notice.kind),
         fraction,
@@ -233,10 +233,10 @@ pub(crate) struct NoticeView {
 }
 
 impl NoticeView {
-    fn card(&self, notice: &Notice, style: MaterialSymbolStyle) -> impl IntoElement + use<> {
+    fn card(&self, notice: &Notice) -> impl IntoElement + use<> {
         let id = notice.id;
         let notice_shelf = Rc::clone(&self.shelf);
-        notice_card(notice, style)
+        notice_card(notice)
             .id(("notice", id))
             .cursor_pointer()
             .shadow_lg()
@@ -254,8 +254,7 @@ impl NoticeView {
 }
 
 impl Render for NoticeView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let style = crate::icons::style(cx);
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         // Shown in place on the platform edge. There is no entrance animation;
         // the newest card is the one against that edge.
         let edge = Edge::platform_default();
@@ -272,7 +271,7 @@ impl Render for NoticeView {
         } else {
             stack.justify_end()
         };
-        stack.children(cards.into_iter().map(|notice| self.card(notice, style)))
+        stack.children(cards.into_iter().map(|notice| self.card(notice)))
     }
 }
 
