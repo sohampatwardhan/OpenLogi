@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt as _;
-use openlogi_agent_core::backlight_overlay::BacklightOverlayManager;
+use openlogi_agent_core::backlight_overlay::{BacklightOverlayManager, BacklightReading};
 use openlogi_agent_core::event_monitor::EventMonitor;
 use openlogi_agent_core::observable::ObservableState;
 use openlogi_agent_core::orchestrator::{Orchestrator, SharedHandles};
@@ -516,12 +516,23 @@ impl Running {
                 self.orchestrator.lock().await.reapply_after_system_resume();
             }
             InventoryEvent::BacklightChanged {
-                device_index: _,
+                device_index,
                 current_level,
                 levels,
                 visible,
+                effect,
+                supported,
             } => {
-                self.backlight_overlay.show(current_level, levels, visible);
+                // No orchestrator lock: a reconciliation holding it must not
+                // delay the card for the key the user just pressed.
+                self.backlight_overlay.show_event(BacklightReading {
+                    device_index,
+                    current_level,
+                    levels,
+                    visible,
+                    effect,
+                    supported,
+                });
             }
             InventoryEvent::LockKeyChanged(change) => {
                 self.orchestrator.lock().await.announce_lock_key(change);

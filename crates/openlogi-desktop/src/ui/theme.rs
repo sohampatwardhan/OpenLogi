@@ -359,8 +359,32 @@ pub fn apply_from_settings(window: Option<&mut Window>, cx: &mut App) {
     if let Some(radius) = radius {
         theme.radius = px(f32::from(radius));
     }
+    let radius_px = overlay_radius_px(cx.theme().radius);
+    if let Some(state) = AppState::try_read(cx) {
+        state.report_overlay_radius(radius_px);
+    }
     // Theme tokens are app-global and consumed by every open window.
     cx.refresh_windows();
+}
+
+/// The pixel radius the overlay should treat as effective. Zero stays zero
+/// so the sharp icons match a sharp theme; anything larger rounds down to
+/// the nearest pixel, capped at [`u8::MAX`].
+fn overlay_radius_px(radius: gpui::Pixels) -> u8 {
+    let px = radius.as_f32().round();
+    if !px.is_finite() || px <= 0.0 {
+        return 0;
+    }
+    let whole = px.min(f32::from(u8::MAX));
+    // `whole` is in `0.0..=255.0` and finite, so it fits in a `u8`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "whole is clamped to 0..=255 before the cast"
+    )]
+    {
+        whole as u8
+    }
 }
 
 /// Faint accent fill marking a *selected* row / chip — tinted, not painted, so

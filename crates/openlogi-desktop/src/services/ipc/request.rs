@@ -1001,7 +1001,26 @@ macro_rules! commands {
     };
 }
 
+/// Tell the overlay the corner radius the desktop just applied.
+pub struct SetOverlayRadius {
+    /// Effective radius in pixels. `0` selects sharp Material Symbols.
+    pub radius_px: u8,
+}
+
+impl Request for SetOverlayRadius {
+    type Answer = ();
+
+    async fn call(&self, client: &AgentClient) -> Result<Self::Answer, RpcError> {
+        client
+            .set_overlay_radius(context::current(), self.radius_px)
+            .await
+    }
+
+    fn deliver(self, _outcome: Result<Self::Answer, Unavailable>, _: &UpdateSender) {}
+}
+
 commands! {
+    SetOverlayRadius,
     SetDpi,
     SetLighting,
     SetLight,

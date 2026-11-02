@@ -1095,8 +1095,8 @@ mod optional_hex_report {
 mod tests {
     use openlogi_core::device::DeviceKind;
     use openlogi_core::hid::{
-        BacklightControls, BacklightMode, BacklightState, BacklightStatus, DisableKeysMask,
-        DisableKeysState,
+        BacklightControls, BacklightEffect, BacklightMode, BacklightState, BacklightStatus,
+        DisableKeysMask, DisableKeysState,
     };
 
     use crate::{CANONICAL_DEVICE_PROFILE_JSON, DeviceProfile, ProfileSetting, ProfileSupport};
@@ -1160,6 +1160,7 @@ mod tests {
                 | BacklightControls::LEVEL
                 | BacklightControls::POWER_SAVE
                 | BacklightControls::DURATION,
+            effect: BacklightEffect::Static,
         }
     }
 
@@ -1266,6 +1267,22 @@ mod tests {
                     | BacklightControls::POWER_SAVE
             ),
             "the missing key reads as its default, like the old field did"
+        );
+    }
+
+    #[test]
+    fn a_profile_recorded_before_effects_reads_static() {
+        let mut record = serde_json::to_value(supported_backlight()).expect("state serializes");
+        record
+            .as_object_mut()
+            .expect("backlight state object")
+            .remove("effect");
+        let restored: BacklightState =
+            serde_json::from_value(record).expect("a record with no effect key loads");
+        assert_eq!(
+            restored.effect,
+            BacklightEffect::Static,
+            "the missing key reads as the firmware default"
         );
     }
 }

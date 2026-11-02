@@ -364,8 +364,12 @@ fn opening_waits_for_a_receiver_choice(cx: &mut TestAppContext) {
     cx.update(theme::register_builtin_themes);
     let mut commands = cx.update(install_state);
     cx.update(open);
+    // Opening applies the theme, which reports the corner radius to the
+    // overlay; only a pairing request would break the promise.
+    let pairing = std::iter::from_fn(|| commands.try_recv().ok())
+        .any(|command| matches!(command, Command::StartPairing(_)));
     assert!(
-        commands.try_recv().is_err(),
+        !pairing,
         "opening Add Device must not pair on the first enumerated receiver"
     );
 }

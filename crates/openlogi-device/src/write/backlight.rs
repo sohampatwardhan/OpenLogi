@@ -132,6 +132,7 @@ fn state_from(config: &BacklightConfig, info: &BacklightInfo, version: u8) -> Ba
         } else {
             None
         },
+        effect: crate::backlight::effect_from_firmware(info.effect),
     }
 }
 

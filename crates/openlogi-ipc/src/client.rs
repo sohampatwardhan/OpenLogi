@@ -33,8 +33,9 @@ use tarpc::client::{self, RpcError};
 use tarpc::context::{self, Context};
 
 use crate::{
-    AgentClient, BacklightObservation, ClientKind, Generation, LockKeyObservation,
-    NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION, RingObservation, transport,
+    AgentClient, BacklightEffectObservation, BacklightObservation, ClientKind, Generation,
+    LockKeyObservation, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
+    RingObservation, UiChromeObservation, transport,
 };
 
 /// Why a client could not be established.
@@ -233,6 +234,18 @@ impl Stamped for LockKeyObservation {
     }
 }
 
+impl Stamped for BacklightEffectObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
+impl Stamped for UiChromeObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
 /// One connection's view of the agent's generation counter.
 ///
 /// Starts at 0 — "I have seen nothing" — so the first answer is the agent's
@@ -357,6 +370,32 @@ impl Observer<LockKeyObservation> {
         Self::new(client, |client, since| {
             let client = client.clone();
             Box::pin(async move { client.observe_lock_keys(observe_context(), since).await })
+        })
+    }
+}
+
+impl Observer<BacklightEffectObservation> {
+    /// Observe the transient backlight-effect indicator over `client`.
+    #[must_use]
+    pub fn backlight_effect(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move {
+                client
+                    .observe_backlight_effect(observe_context(), since)
+                    .await
+            })
+        })
+    }
+}
+
+impl Observer<UiChromeObservation> {
+    /// Observe the corner radius the overlay draws Material Symbols with.
+    #[must_use]
+    pub fn ui_chrome(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move { client.observe_ui_chrome(observe_context(), since).await })
         })
     }
 }
@@ -725,6 +764,8 @@ mod tests {
                                 current_level: 1,
                                 levels: 3,
                                 visible: true,
+                                off_hint: false,
+                                language: None,
                             })
                         }
                         AgentRequest::ObserveLockKeys { since } => {
@@ -733,6 +774,15 @@ mod tests {
                                 generation: since + 1,
                                 shown: None,
                                 language: None,
+                            })
+                        }
+                        AgentRequest::ObserveBacklightEffect { since } => {
+                            recorded.lock().unwrap().push(("backlight effect", since));
+                            AgentResponse::ObserveBacklightEffect(BacklightEffectObservation {
+                                generation: since + 1,
+                                shown: None,
+                                language: None,
+                                supported: Vec::new(),
                             })
                         }
                         other => panic!("an observer sent an unexpected request: {other:?}"),
@@ -744,6 +794,7 @@ mod tests {
         );
         let mut notices = Observer::notices(client.clone());
         let mut backlight = Observer::backlight(client.clone());
+        let mut effects = Observer::backlight_effect(client.clone());
         let mut lock_keys = Observer::lock_keys(client);
 
         for expected in [1, 2] {
@@ -751,11 +802,14 @@ mod tests {
             assert_eq!(observed.map(|observed| observed.generation), Some(expected));
             let observed = backlight.next().await.expect("the agent is up");
             assert_eq!(observed.map(|observed| observed.generation), Some(expected));
+            let observed = effects.next().await.expect("the agent is up");
+            assert_eq!(observed.map(|observed| observed.generation), Some(expected));
             let observed = lock_keys.next().await.expect("the agent is up");
             assert_eq!(observed.map(|observed| observed.generation), Some(expected));
         }
         assert_eq!(asked_by(&asked, "notices"), [0, 1]);
         assert_eq!(asked_by(&asked, "backlight"), [0, 1]);
+        assert_eq!(asked_by(&asked, "backlight effect"), [0, 1]);
         assert_eq!(asked_by(&asked, "lock keys"), [0, 1]);
     }
 }

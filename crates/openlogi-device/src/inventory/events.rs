@@ -12,9 +12,9 @@
 //! publishes as [`PairedDevice::settings_revision`]. A client re-reads the
 //! device's settings when it sees the revision move.
 //!
-//! A keyboard's backlight broadcast additionally carries its new level, which
-//! goes through a separate latest-value channel to the transient on-screen
-//! indicator ([`EventReceiver::backlights`]).
+//! A keyboard's backlight broadcast additionally carries its new level and
+//! effect, which go through a separate latest-value channel to the transient
+//! on-screen indicator ([`EventReceiver::backlights`]).
 //!
 //! A keyboard's lock-key broadcast (`0x4220`) is not inventory at all. It is
 //! compared with the device's last lock state, and each key that changed goes
@@ -47,6 +47,7 @@ use hidpp::feature::wireless_device_status::WirelessDeviceStatusEvent;
 use hidpp::protocol::{v10, v20};
 use hidpp::receiver::{bolt, unifying};
 use openlogi_core::device::LockKey;
+use openlogi_core::hid::BacklightEffect;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tokio::sync::Notify;
@@ -131,6 +132,11 @@ pub struct BacklightUpdate {
     pub levels: u8,
     /// Whether the backlight is lit, so the indicator should show.
     pub visible: bool,
+    /// The predefined effect the keyboard is running now.
+    pub effect: BacklightEffect,
+    /// Effect-list bits from `getBacklightConfig`, once that read has
+    /// answered. `None` until then: the indicator names only [`Self::effect`].
+    pub supported: Option<u16>,
 }
 
 impl BacklightUpdate {
@@ -145,6 +151,8 @@ impl BacklightUpdate {
                     | BacklightStatus::DisabledByCriticalBattery
                     | BacklightStatus::AlsSaturated
             ),
+            effect: crate::backlight::effect_from_firmware(info.effect),
+            supported: None,
         }
     }
 }
@@ -509,6 +517,11 @@ struct DeviceEvents {
     /// lock-state read started before a comeback does not record its answer
     /// after it.
     lock_keys_connection: u64,
+    /// Effect-list bits from `getBacklightConfig`. `None` until that read
+    /// answers, including after the device was away.
+    effect_list: Option<u16>,
+    /// Whether that read was started since the device came online.
+    effect_list_read: bool,
 }
 
 impl DeviceEvents {
@@ -518,6 +531,9 @@ impl DeviceEvents {
         self.lock_keys = None;
         self.lock_keys_read = false;
         self.lock_keys_connection = self.lock_keys_connection.wrapping_add(1);
+        // The keyboard may have been reconfigured while it was away.
+        self.effect_list = None;
+        self.effect_list_read = false;
     }
 }
 
@@ -601,8 +617,15 @@ impl SubscriptionState {
                 &message.extend_payload(),
             )
         {
-            self.notifier
-                .notify_backlight(BacklightUpdate::from_info(device_index, info));
+            let mut update = BacklightUpdate::from_info(device_index, info);
+            update.supported = self
+                .devices
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|device| device.device_index == device_index)
+                .and_then(|device| device.effect_list);
+            self.notifier.notify_backlight(update);
         }
         Some(source)
     }
@@ -689,6 +712,8 @@ impl EventSubscriptionHandle {
                 lock_keys: None,
                 lock_keys_read: false,
                 lock_keys_connection: 0,
+                effect_list: None,
+                effect_list_read: false,
             });
         }
     }
@@ -756,6 +781,61 @@ impl EventSubscriptionHandle {
         match feature.get_lock_state().await {
             Ok(keys) => self.record_lock_keys(read, keys),
             Err(error) => debug!(device_index, ?error, "lock-key state read failed"),
+        }
+    }
+
+    /// The read to start for an `online` keyboard whose effect list has not
+    /// been read since it came online. An offline device forgets the list.
+    fn effects_to_read(&self, device_index: u8, online: bool) -> Option<(u8, u8)> {
+        let mut devices = self
+            .state
+            .devices
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let device = devices
+            .iter_mut()
+            .find(|device| device.device_index == device_index)?;
+        if !online {
+            device.effect_list = None;
+            device.effect_list_read = false;
+            return None;
+        }
+        let feature_index = device.features.backlight?;
+        if device.effect_list_read {
+            return None;
+        }
+        device.effect_list_read = true;
+        Some((device_index, feature_index))
+    }
+
+    fn record_effect_list(&self, device_index: u8, bits: u16) {
+        if let Some(device) = self
+            .state
+            .devices
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .find(|device| device.device_index == device_index)
+        {
+            device.effect_list = Some(bits);
+        }
+    }
+
+    /// Read the supported backlight effects once per connection, so an effect
+    /// change can list the keyboard's cycle. An offline device forgets the list.
+    pub(super) async fn sync_backlight_effects(
+        &self,
+        channel: &Arc<HidppChannel>,
+        device_index: u8,
+        online: bool,
+    ) {
+        let Some((device_index, feature_index)) = self.effects_to_read(device_index, online) else {
+            return;
+        };
+        let feature = BacklightFeature::new(Arc::clone(channel), device_index, feature_index);
+        match feature.get_backlight_config().await {
+            Ok(config) => self.record_effect_list(device_index, config.effect_list.bits()),
+            Err(error) => debug!(device_index, ?error, "backlight effect list read failed"),
         }
     }
 
@@ -903,6 +983,8 @@ mod tests {
             lock_keys: None,
             lock_keys_read: false,
             lock_keys_connection: 0,
+            effect_list: None,
+            effect_list_read: false,
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: None,
@@ -947,6 +1029,8 @@ mod tests {
             lock_keys: None,
             lock_keys_read: false,
             lock_keys_connection: 0,
+            effect_list: None,
+            effect_list_read: false,
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: Some(7),
@@ -1020,6 +1104,8 @@ mod tests {
             lock_keys: None,
             lock_keys_read: false,
             lock_keys_connection: 0,
+            effect_list: None,
+            effect_list_read: false,
             features: EventFeatureIndices {
                 wireless_status: None,
                 unified_battery: None,
@@ -1097,6 +1183,8 @@ mod tests {
             lock_keys: None,
             lock_keys_read: false,
             lock_keys_connection: 0,
+            effect_list: None,
+            effect_list_read: false,
             features: EventFeatureIndices {
                 battery_status: Some(4),
                 battery_voltage: Some(6),
@@ -1484,7 +1572,7 @@ mod tests {
         .register_device(1, keyboard);
         let backlights = receiver.backlights();
         // nb_levels, current_level, status, effect.
-        let report = |current_level: u8, status: u8| {
+        let report = |current_level: u8, status: u8, effect: u8| {
             v20::Message::Long(
                 v20::MessageHeader {
                     device_index: 1,
@@ -1496,7 +1584,7 @@ mod tests {
                     8,
                     current_level,
                     status,
-                    0,
+                    effect,
                     0,
                     0,
                     0,
@@ -1515,11 +1603,11 @@ mod tests {
         };
 
         // A reply to our own `getBacklightInfo` is not a reading to show.
-        assert_eq!(state.decode(report(4, 5), true), None);
+        assert_eq!(state.decode(report(4, 5, 0), true), None);
         assert_eq!(*backlights.borrow(), None);
 
         assert_eq!(
-            state.decode(report(4, 5), false),
+            state.decode(report(4, 5, 2), false),
             Some(HidppEventSource::Backlight)
         );
         assert_eq!(
@@ -1529,11 +1617,13 @@ mod tests {
                 current_level: 4,
                 levels: 8,
                 visible: true,
+                effect: BacklightEffect::Breathing,
+                supported: None,
             })
         );
 
         // Turned off in software: the indicator hides.
-        let _ = state.decode(report(0, 0), false);
+        let _ = state.decode(report(0, 0, 1), false);
         assert_eq!(
             backlights.borrow().map(|update| update.visible),
             Some(false)
@@ -1803,6 +1893,8 @@ mod tests {
             current_level,
             levels: 8,
             visible: true,
+            effect: BacklightEffect::Static,
+            supported: None,
         };
         notifier.notify(HidppEventSource::ReceiverConnection);
         notifier.notify(HidppEventSource::Backlight);

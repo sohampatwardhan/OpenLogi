@@ -395,6 +395,7 @@ async fn shared_read_and_lighting_apis_use_the_supplied_channel() -> Result<(), 
             power_save: false,
             duration: None,
             controls: BacklightControls::default(),
+            effect: crate::BacklightEffect::Static,
         }
     );
 

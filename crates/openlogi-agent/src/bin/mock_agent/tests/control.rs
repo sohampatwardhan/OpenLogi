@@ -164,6 +164,15 @@ fn indicator_and_session_commands_parse() {
             }),
         ),
         (
+            "effect breathing",
+            Some(Command::Effect(
+                openlogi_core::hid::BacklightEffect::Breathing,
+            )),
+        ),
+        ("effect off", Some(Command::EffectOff)),
+        ("radius 0", Some(Command::Radius(0))),
+        ("radius 12", Some(Command::Radius(12))),
+        (
             "advance 30",
             Some(Command::Advance(Duration::from_secs(30))),
         ),
@@ -195,6 +204,11 @@ fn malformed_commands_are_refused() {
         "backlight 0 0",
         "backlight 1",
         "backlight 300 400",
+        "effect",
+        "effect none",
+        "effect off now",
+        "radius",
+        "radius -1",
         "advance",
         "advance -1",
         "advance soon",
@@ -514,6 +528,99 @@ async fn a_backlight_level_reaches_the_overlay() {
         (observed.current_level, observed.levels, observed.visible),
         (2, 4, true)
     );
+    assert!(!observed.off_hint);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_backlight_effect_reaches_the_overlay() {
+    let agent = MockAgent::new(test_state());
+    let settings = AppSettings {
+        language: Some("ja".to_owned()),
+        ..AppSettings::default()
+    };
+    let reply = agent
+        .apply(
+            Command::Effect(openlogi_core::hid::BacklightEffect::Waves),
+            &settings,
+        )
+        .await
+        .expect("effect shown");
+    assert_eq!(reply, "showing backlight effect waves");
+    let observed = agent
+        .clone()
+        .observe_backlight_effect(tarpc::context::current(), 0)
+        .await;
+    assert_eq!(
+        observed.shown,
+        Some(openlogi_core::hid::BacklightEffect::Waves)
+    );
+    assert_eq!(
+        observed.supported,
+        openlogi_core::hid::BacklightEffect::CYCLE
+    );
+    assert_eq!(observed.language.as_deref(), Some("ja"));
+    let level = agent
+        .clone()
+        .observe_backlight(tarpc::context::current(), 0)
+        .await;
+    assert!(
+        !level.off_hint,
+        "a real effect change is the list, not the off hint"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn effect_off_shows_the_hint_and_not_the_effect_list() {
+    let agent = MockAgent::new(test_state());
+    agent
+        .apply(
+            Command::Effect(openlogi_core::hid::BacklightEffect::Waves),
+            &AppSettings::default(),
+        )
+        .await
+        .expect("effect shown");
+    let listed = agent
+        .clone()
+        .observe_backlight_effect(tarpc::context::current(), 0)
+        .await;
+
+    let reply = agent
+        .apply(Command::EffectOff, &AppSettings::default())
+        .await
+        .expect("off hint shown");
+    assert_eq!(reply, "showing the backlight-off effect hint");
+    let hint = agent
+        .clone()
+        .observe_backlight(tarpc::context::current(), 0)
+        .await;
+    assert!(hint.visible);
+    assert!(hint.off_hint);
+    assert_eq!((hint.current_level, hint.levels), (0, 8));
+    let closed = agent
+        .clone()
+        .observe_backlight_effect(tarpc::context::current(), listed.generation)
+        .await;
+    assert_eq!(closed.shown, None);
+}
+
+#[tokio::test]
+async fn radius_reaches_the_overlay() {
+    let agent = MockAgent::new(test_state());
+    let initial = agent
+        .clone()
+        .observe_ui_chrome(tarpc::context::current(), 0)
+        .await;
+    assert_eq!(initial.radius_px, 6);
+    let reply = agent
+        .apply(Command::Radius(0), &AppSettings::default())
+        .await
+        .expect("radius applied");
+    assert_eq!(reply, "overlay corner radius is 0px");
+    let sharp = agent
+        .clone()
+        .observe_ui_chrome(tarpc::context::current(), initial.generation)
+        .await;
+    assert_eq!(sharp.radius_px, 0);
 }
 
 #[tokio::test]

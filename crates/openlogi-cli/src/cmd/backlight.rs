@@ -258,14 +258,15 @@ fn keeps_the_mode(change: BacklightChange) -> bool {
 fn print_state(out: &mut impl Write, label: &str, state: BacklightState) -> io::Result<()> {
     writeln!(
         out,
-        "  {label}: enabled={} mode={} status={} level={}/{} battery-saving={} duration={}",
+        "  {label}: enabled={} mode={} status={} level={}/{} battery-saving={} duration={} effect={}",
         state.enabled,
         mode_label(state.mode),
         status_label(state.status),
         state.current_level,
         max_backlight_level(state.nb_levels),
         state.power_save,
-        duration_label(state)
+        duration_label(state),
+        state.effect.label(),
     )
 }
 

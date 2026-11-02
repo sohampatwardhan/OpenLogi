@@ -19,10 +19,10 @@ use openlogi_core::device::{
     BatteryInfo, ChangedOnLight, DeviceInventory, DeviceKind, LightState, LockKey, StandaloneDevice,
 };
 use openlogi_core::hid::{
-    BacklightChange, BacklightState, DeviceRoute, DisableKeysMask, DisableKeysState, Dpi, DpiInfo,
-    EasySwitchHosts, FnLockState, ForceSensingInfo, LightCommand, OnboardState, PairingError,
-    PasskeyMethod, PointerSpeed, ReceiverSelector, ReportRate, ReportRateInfo, ScrollWheelMode,
-    SmartShiftStatus, WriteError,
+    BacklightChange, BacklightEffect, BacklightState, DeviceRoute, DisableKeysMask,
+    DisableKeysState, Dpi, DpiInfo, EasySwitchHosts, FnLockState, ForceSensingInfo, LightCommand,
+    OnboardState, PairingError, PasskeyMethod, PointerSpeed, ReceiverSelector, ReportRate,
+    ReportRateInfo, ScrollWheelMode, SmartShiftStatus, WriteError,
 };
 use serde::{Deserialize, Serialize};
 pub use succession::Identity;
@@ -170,6 +170,23 @@ pub use succession::Identity;
 ///      host switching of one device. `AgentSnapshot::flow` appended —
 ///      whether Flow is enabled, and the coarse link state of each
 ///      configured peer.
+///      `BacklightState::effect` and [`BacklightEffect`] appended — the
+///      predefined effect HID++ `0x1982` reports, printed by
+///      `openlogi backlight status`. `Agent::observe_backlight_effect` and
+///      [`BacklightEffectObservation`] appended — that effect when a keyboard
+///      changes it without changing the brightness, for the overlay's
+///      transient indicator. [`BacklightEffectObservation::supported`]
+///      appended — the effects `getBacklightConfig` lists, in the keyboard's
+///      cycle order. Empty until that read answers, and the overlay then
+///      names only the current effect. [`BacklightObservation::off_hint`]
+///      appended — the brightness card's off hint. Device events leave it
+///      false: the effect key emits no HID++ report while the backlight is
+///      off, and the mock console is what sets it.
+///      [`UiChromeObservation`] and `Agent::observe_ui_chrome` appended, and
+///      `Agent::set_overlay_radius` appended — the effective corner radius
+///      the overlay uses for Material Symbol icons. `0` is sharp.
+///      [`BacklightObservation::language`] appended — the configured UI
+///      locale, now that the brightness card draws translated text.
 pub const PROTOCOL_VERSION: u32 = 44;
 
 /// Environment variable through which the agent hands a supervised helper the
@@ -666,6 +683,17 @@ pub struct BacklightObservation {
     pub levels: u8,
     /// Whether the firmware reports a visible backlight state.
     pub visible: bool,
+    /// The effect key was pressed while the backlight is off.
+    ///
+    /// The overlay then draws the off hint on this card: the lightbulb, an
+    /// empty bar, and the sentence that brightness has to come up before
+    /// effects change. A keyboard does not emit that press, so a device
+    /// event leaves this false and the mock console is what sets it.
+    #[serde(default)]
+    pub off_hint: bool,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale. The card translates the word Off and the off hint.
+    pub language: Option<String>,
 }
 
 /// The transient lock-key indicator: the lock key a keyboard just turned on
@@ -683,6 +711,42 @@ pub struct LockKeyObservation {
     /// Configured UI locale, or `None` to follow the overlay host's system
     /// locale.
     pub language: Option<String>,
+}
+
+/// The transient backlight-effect indicator: the effect a keyboard just
+/// switched to, or none once the indicator's time is up.
+///
+/// Its own cell, as [`LockKeyObservation`] is. The agent owns how long the
+/// indicator shows, and it posts here only when the effect changed and the
+/// brightness did not — a brightness change stays on [`BacklightObservation`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklightEffectObservation {
+    /// See [`Generation`]. Pass it back to the next
+    /// [`Agent::observe_backlight_effect`].
+    pub generation: Generation,
+    /// The effect to name, or `None` for none — which is also how the
+    /// indicator ends.
+    pub shown: Option<BacklightEffect>,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale.
+    pub language: Option<String>,
+    /// Effects the keyboard supports, in its cycle order. Empty when the
+    /// agent has not read the effect list: the overlay names only
+    /// [`Self::shown`].
+    pub supported: Vec<BacklightEffect>,
+}
+
+/// The corner radius the overlay should draw Material Symbols with.
+///
+/// Its own cell, as [`BacklightObservation`] is. The desktop pushes the
+/// radius it just applied, including a theme's own radius when the user has
+/// not overridden it, and a config reload publishes the stored setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiChromeObservation {
+    /// See [`Generation`]. Pass it back to the next [`Agent::observe_ui_chrome`].
+    pub generation: Generation,
+    /// Effective corner radius in pixels. `0` selects the sharp icons.
+    pub radius_px: u8,
 }
 
 /// A lock key that a keyboard reported turning on or off.
@@ -1029,4 +1093,23 @@ pub trait Agent {
     /// write was issued. It does not mean the device arrived: once the write
     /// takes effect, its radio link has left this computer.
     async fn switch_host(route: DeviceRoute, host: u8) -> Result<(), WriteError>;
+
+    /// Long-poll the backlight-effect indicator. Answers as soon as it
+    /// differs from generation `since`, or with the unchanged indicator after
+    /// [`OBSERVE_HOLD`]. Pass `0` to read the current indicator at once.
+    ///
+    /// Appended after [`Self::switch_host`] so the service-method order stays
+    /// stable.
+    async fn observe_backlight_effect(since: Generation) -> BacklightEffectObservation;
+
+    /// Tell the overlay the corner radius the desktop just applied, in pixels.
+    /// `0` selects sharp Material Symbols; any other radius selects rounded.
+    ///
+    /// Appended after [`Self::observe_backlight_effect`].
+    async fn set_overlay_radius(radius_px: u8);
+
+    /// Long-poll that radius. Answers as soon as it differs from generation
+    /// `since`, or with the unchanged radius after [`OBSERVE_HOLD`]. Pass `0`
+    /// to read the current radius at once.
+    async fn observe_ui_chrome(since: Generation) -> UiChromeObservation;
 }

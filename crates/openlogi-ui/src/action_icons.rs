@@ -17,13 +17,18 @@ use std::borrow::Cow;
 #[cfg(feature = "gpui")]
 use gpui::{AssetSource, Result, SharedString};
 
-/// Vendored [lucide](https://lucide.dev) icons (ISC license), embedded so they
-/// resolve identically in a packaged `.app` and a dev build. Served under the
-/// `action-icons/` path prefix and rendered via `svg().path(..)` or
-/// `Icon::empty().path(..)`. Mostly command glyphs for the binding menus
-/// (paste / cut / volume / lock / …), plus the chrome marks gpui-component's
-/// bundled `IconName` set does not cover — About-page icons, and `mouse-left` /
-/// `mouse-right`, which are lucide's `mouse` with one button filled in.
+/// Vendored icons, embedded so they resolve identically in a packaged `.app`
+/// and a dev build. Served under the `action-icons/` path prefix and rendered
+/// via `svg().path(..)` or `Icon::empty().path(..)`.
+///
+/// Most of the set is [Lucide](https://lucide.dev) (ISC license): command
+/// glyphs for the binding menus (paste / cut / volume / lock / …), plus the
+/// chrome marks gpui-component's bundled `IconName` set does not cover —
+/// About-page icons, and `mouse-left` / `mouse-right`, which are Lucide's
+/// `mouse` with one button filled in. The overlay popup glyphs
+/// (`backlight-*-rounded`, `keyboard-capslock-badge-*-rounded`) are
+/// [Material Symbols](https://fonts.google.com/icons) by Google, Apache
+/// License 2.0. The rest of the app stays on Lucide.
 ///
 /// `x.svg` duplicates `IconName::Close` on purpose: the overlay does not depend
 /// on gpui-component, and its ring cancel target has to match the settings-side
@@ -32,6 +37,12 @@ use gpui::{AssetSource, Result, SharedString};
 const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/arrow-left.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-left.svg"))),
     ("action-icons/arrow-right.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-right.svg"))),
+    ("action-icons/backlight-high-off-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-off-rounded.svg"))),
+    ("action-icons/backlight-high-off-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-off-sharp.svg"))),
+    ("action-icons/backlight-high-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-rounded.svg"))),
+    ("action-icons/backlight-high-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-sharp.svg"))),
+    ("action-icons/backlight-low-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-rounded.svg"))),
+    ("action-icons/backlight-low-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-sharp.svg"))),
     ("action-icons/ban.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/ban.svg"))),
     ("action-icons/battery-low.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-low.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
@@ -59,9 +70,16 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/globe.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/globe.svg"))),
     ("action-icons/grid-3x3.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/grid-3x3.svg"))),
     ("action-icons/heart.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/heart.svg"))),
+    ("action-icons/keyboard-capslock-badge-outline-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-outline-rounded.svg"))),
+    ("action-icons/keyboard-capslock-badge-outline-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-outline-sharp.svg"))),
+    ("action-icons/keyboard-capslock-badge-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-rounded.svg"))),
+    ("action-icons/keyboard-capslock-badge-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-sharp.svg"))),
     ("action-icons/keyboard.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard.svg"))),
     ("action-icons/layers.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layers.svg"))),
     ("action-icons/layout-grid.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layout-grid.svg"))),
+    ("action-icons/lightbulb-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb-rounded.svg"))),
+    ("action-icons/lightbulb-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb-sharp.svg"))),
+    ("action-icons/lightbulb.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb.svg"))),
     ("action-icons/list-checks.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/list-checks.svg"))),
     ("action-icons/lock.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lock.svg"))),
     ("action-icons/monitor.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/monitor.svg"))),
@@ -110,8 +128,69 @@ pub const RING_CANCEL_ICON: &str = "action-icons/x.svg";
 /// The glyph on the overlay's low-battery notice.
 pub const LOW_BATTERY_ICON: &str = "action-icons/battery-low.svg";
 
-/// The glyph on the overlay's lock-key indicator.
-pub const LOCK_KEY_ICON: &str = "action-icons/keyboard.svg";
+/// Material Symbol for a backlight at the low end of its scale.
+pub const BACKLIGHT_LOW_ICON: &str = "action-icons/backlight-low-rounded.svg";
+
+/// Material Symbol for a backlight at the high end of its scale.
+pub const BACKLIGHT_HIGH_ICON: &str = "action-icons/backlight-high-rounded.svg";
+
+/// Material Symbol for a backlight that is off, including the effect key
+/// pressed while the backlight is off.
+pub const BACKLIGHT_OFF_ICON: &str = "action-icons/backlight-high-off-rounded.svg";
+
+/// Filled Caps Lock badge. Every lock-key popup uses it while the key is on.
+///
+/// Num Lock and Scroll Lock share it: Material Symbols has no num-lock or
+/// scroll-lock glyph, and the label still names the key.
+pub const LOCK_KEY_ON_ICON: &str = "action-icons/keyboard-capslock-badge-rounded.svg";
+
+/// Outlined Caps Lock badge. Every lock-key popup uses it while the key is off.
+pub const LOCK_KEY_OFF_ICON: &str = "action-icons/keyboard-capslock-badge-outline-rounded.svg";
+
+/// The backlight glyph for `level` on a keyboard whose highest level is
+/// `max_level`, in `corner`.
+///
+/// Level 0 is off. Above that, the low glyph covers the bottom of the scale
+/// and the high glyph the rest, matching 1–3 low and 4–7 high when
+/// `max_level` is 7: low while `level * 7 <= max_level * 3`.
+#[must_use]
+pub fn backlight_level_icon(
+    level: u8,
+    max_level: u8,
+    corner: crate::material::MaterialCorner,
+) -> String {
+    let stem = if level == 0 {
+        "backlight-high-off"
+    } else {
+        let level = u16::from(level);
+        let max_level = u16::from(max_level);
+        if level.saturating_mul(7) <= max_level.saturating_mul(3) {
+            "backlight-low"
+        } else {
+            "backlight-high"
+        }
+    };
+    crate::material::material_icon_path(stem, corner)
+}
+
+/// The lightbulb above the effect-cycle list, in `corner`.
+#[must_use]
+pub fn backlight_effect_icon(corner: crate::material::MaterialCorner) -> String {
+    crate::material::material_icon_path("lightbulb", corner)
+}
+
+/// The lock-key glyph for a key that is now `engaged` or not, in `corner`.
+///
+/// Caps Lock, Num Lock, and Scroll Lock share the Caps Lock badge.
+#[must_use]
+pub fn lock_key_icon(engaged: bool, corner: crate::material::MaterialCorner) -> String {
+    let stem = if engaged {
+        "keyboard-capslock-badge"
+    } else {
+        "keyboard-capslock-badge-outline"
+    };
+    crate::material::material_icon_path(stem, corner)
+}
 
 /// The embedded SVG for an `action-icons/…` asset path — the same path
 /// `ActionRingIcon::asset_path` names — or `None` for any other path.
@@ -150,6 +229,7 @@ mod tests {
     use openlogi_core::binding::ActionRingIcon;
 
     use super::*;
+    use crate::material::MaterialCorner;
 
     #[test]
     fn the_shared_ring_cancel_icon_is_embedded() {
@@ -171,9 +251,73 @@ mod tests {
     }
 
     #[test]
-    fn the_lock_key_indicator_icon_is_embedded() {
-        let loaded = ActionIcons.load(LOCK_KEY_ICON);
-        assert!(matches!(loaded, Ok(Some(_))), "{LOCK_KEY_ICON} is missing");
+    fn the_lock_key_indicator_icons_are_embedded() {
+        for engaged in [true, false] {
+            for corner in [MaterialCorner::Rounded, MaterialCorner::Sharp] {
+                let path = lock_key_icon(engaged, corner);
+                assert!(embedded_icon(&path).is_some(), "{path} is missing");
+            }
+        }
+        assert_ne!(
+            lock_key_icon(true, MaterialCorner::Rounded),
+            lock_key_icon(false, MaterialCorner::Rounded)
+        );
+    }
+
+    #[test]
+    fn backlight_icons_follow_a_seven_step_scale() {
+        let rounded = MaterialCorner::Rounded;
+        assert_eq!(backlight_level_icon(0, 7, rounded), BACKLIGHT_OFF_ICON);
+        for level in 1..=3 {
+            assert_eq!(
+                backlight_level_icon(level, 7, rounded),
+                BACKLIGHT_LOW_ICON,
+                "{level}"
+            );
+        }
+        for level in 4..=7 {
+            assert_eq!(
+                backlight_level_icon(level, 7, rounded),
+                BACKLIGHT_HIGH_ICON,
+                "{level}"
+            );
+        }
+        // Twice the steps: 3/7 of 14 is 6, so 6 stays low and 7 is high.
+        assert_eq!(backlight_level_icon(6, 14, rounded), BACKLIGHT_LOW_ICON);
+        assert_eq!(backlight_level_icon(7, 14, rounded), BACKLIGHT_HIGH_ICON);
+        assert_eq!(
+            backlight_level_icon(4, 7, MaterialCorner::Sharp),
+            "action-icons/backlight-high-sharp.svg"
+        );
+        assert_eq!(
+            backlight_effect_icon(rounded),
+            "action-icons/lightbulb-rounded.svg"
+        );
+    }
+
+    #[test]
+    fn material_popup_icons_keep_current_color() {
+        for path in [
+            BACKLIGHT_LOW_ICON,
+            "action-icons/backlight-low-sharp.svg",
+            BACKLIGHT_HIGH_ICON,
+            "action-icons/backlight-high-sharp.svg",
+            BACKLIGHT_OFF_ICON,
+            "action-icons/backlight-high-off-sharp.svg",
+            LOCK_KEY_ON_ICON,
+            "action-icons/keyboard-capslock-badge-sharp.svg",
+            LOCK_KEY_OFF_ICON,
+            "action-icons/keyboard-capslock-badge-outline-sharp.svg",
+            "action-icons/lightbulb-rounded.svg",
+            "action-icons/lightbulb-sharp.svg",
+        ] {
+            let bytes = embedded_icon(path).expect(path);
+            let svg = str::from_utf8(bytes).expect(path);
+            assert!(
+                svg.contains("fill=\"currentColor\""),
+                "{path} must tint with the popup colour"
+            );
+        }
     }
 
     #[test]

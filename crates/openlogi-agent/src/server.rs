@@ -18,6 +18,7 @@ use openlogi_agent_core::event_monitor::SharedEventMonitor;
 use openlogi_agent_core::observable::ObservableState;
 use openlogi_agent_core::orchestrator::{self, Orchestrator, SharedHandles};
 use openlogi_agent_core::runtime::ActionDispatcher;
+use openlogi_agent_core::ui_chrome::UiChrome;
 use openlogi_core::binding::ActionRingSlot;
 use openlogi_core::config::{ConfigFile, ConfigRevision, Lighting};
 use openlogi_core::device::DeviceInventory;
@@ -30,9 +31,10 @@ use openlogi_hid::{
 use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
-    BacklightObservation, ClientKind, ConfigReloadError, Generation, Identity, LockKeyObservation,
-    MonitorEvent, NoticeObservation, Observation, PROTOCOL_VERSION, PairingCommandError,
-    PairingFailure, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
+    BacklightEffectObservation, BacklightObservation, ClientKind, ConfigReloadError, Generation,
+    Identity, LockKeyObservation, MonitorEvent, NoticeObservation, Observation, PROTOCOL_VERSION,
+    PairingCommandError, PairingFailure, PairingUpdate, RingObservation, SavedConfig,
+    SavedConfigVerdict, UiChromeObservation,
 };
 use succession::Compat;
 
@@ -61,6 +63,7 @@ pub struct AgentServer {
     pub dispatcher: ActionDispatcher,
     pub ring_haptics: RingHapticPlayer,
     pub backlight_overlay: BacklightOverlayManager,
+    pub ui_chrome: UiChrome,
     /// Forwards each connection's [`ClientKind`] declaration to the
     /// dormancy gate.
     pub demand: tokio::sync::mpsc::UnboundedSender<ClientKind>,
@@ -82,6 +85,7 @@ impl AgentServer {
         action_ring: Arc<ActionRingManager>,
         dispatcher: ActionDispatcher,
         backlight_overlay: BacklightOverlayManager,
+        ui_chrome: UiChrome,
     ) -> (Self, tokio::sync::mpsc::UnboundedReceiver<ClientKind>) {
         let ring_haptics = RingHapticPlayer::spawn(shared.clone());
         let (demand, declarations) = tokio::sync::mpsc::unbounded_channel();
@@ -96,6 +100,7 @@ impl AgentServer {
                 dispatcher,
                 ring_haptics,
                 backlight_overlay,
+                ui_chrome,
                 demand,
             },
             declarations,
@@ -119,6 +124,7 @@ impl AgentServer {
                 #[cfg(target_os = "macos")]
                 let show_in_menu_bar = config.app_settings.show_in_menu_bar;
                 let language = config.app_settings.language.clone();
+                let ui_radius = config.app_settings.ui_radius;
                 match saved {
                     None => self.orchestrator.lock().await.reload_config(config),
                     Some(saved) => self
@@ -144,6 +150,8 @@ impl AgentServer {
                 // and rebuild the macOS menu, whose titles were stamped at
                 // install.
                 openlogi_core::locale::activate(language.as_deref());
+                self.backlight_overlay.set_language(language);
+                self.ui_chrome.set_setting(ui_radius);
                 #[cfg(target_os = "macos")]
                 crate::tray::relocalize();
                 Ok(revision)
@@ -181,6 +189,22 @@ impl Agent for AgentServer {
 
     async fn observe_backlight(self, _: Context, since: Generation) -> BacklightObservation {
         self.backlight_overlay.observe(since).await
+    }
+
+    async fn observe_backlight_effect(
+        self,
+        _: Context,
+        since: Generation,
+    ) -> BacklightEffectObservation {
+        self.backlight_overlay.observe_effect(since).await
+    }
+
+    async fn set_overlay_radius(self, _: Context, radius_px: u8) {
+        self.ui_chrome.set_radius(radius_px);
+    }
+
+    async fn observe_ui_chrome(self, _: Context, since: Generation) -> UiChromeObservation {
+        self.ui_chrome.observe(since).await
     }
 
     /// `Run::mint` is process-global, so the overlay supervisor hands its

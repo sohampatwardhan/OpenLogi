@@ -45,22 +45,23 @@ use openlogi_core::device::{
     LightValueUnit, LockKey, PairedDevice, RawDeviceAddress, ReceiverInfo, StandaloneDevice,
 };
 use openlogi_core::hid::{
-    BacklightChange, BacklightControls, BacklightDuration, BacklightMode, BacklightState,
-    BacklightStatus, Click, DeviceRoute, DisableKeysMask, DisableKeysState, Dpi, DpiCapabilities,
-    DpiInfo, EasySwitchHosts, EasySwitchSlot, FnLockState, ForceSensingInfo, HidppFeatureErrorKind,
-    HidppOperation, HostConnection, HostOsInfo, HostOsKind, LightCommand, OnboardMode,
-    OnboardProfile, OnboardState, PasskeyMethod, ProfileIndex, ReceiverSelector, ReportRate,
-    ReportRateInfo, ScrollReportingTarget, ScrollWheelMode, SmartShiftAutoDisengage,
+    BacklightChange, BacklightControls, BacklightDuration, BacklightEffect, BacklightMode,
+    BacklightState, BacklightStatus, Click, DeviceRoute, DisableKeysMask, DisableKeysState, Dpi,
+    DpiCapabilities, DpiInfo, EasySwitchHosts, EasySwitchSlot, FnLockState, ForceSensingInfo,
+    HidppFeatureErrorKind, HidppOperation, HostConnection, HostOsInfo, HostOsKind, LightCommand,
+    OnboardMode, OnboardProfile, OnboardState, PasskeyMethod, ProfileIndex, ReceiverSelector,
+    ReportRate, ReportRateInfo, ScrollReportingTarget, ScrollWheelMode, SmartShiftAutoDisengage,
     SmartShiftMode, SmartShiftStatus, SmartShiftThreshold, TunableTorque, WriteError,
 };
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, ActionRingPresentation, AgentRequest,
-    AgentResponse, AgentSnapshot, AgentStatus, BacklightObservation, ChosenLight, ClientKind,
-    ConfigReloadError, FlowLinkState, FlowPeerStatus, FlowStatus, ForegroundApps, FoundDevice,
-    Identity, InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, Notice, NoticeKind,
-    NoticeObservation, Observation, ObservedLight, PROTOCOL_VERSION, PairingCommandError,
-    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
-    SecureInput, VirtualKeyboardStatus,
+    AgentResponse, AgentSnapshot, AgentStatus, BacklightEffectObservation, BacklightObservation,
+    ChosenLight, ClientKind, ConfigReloadError, FlowLinkState, FlowPeerStatus, FlowStatus,
+    ForegroundApps, FoundDevice, Identity, InventoryHealth, LockKeyChange, LockKeyObservation,
+    MonitorEvent, Notice, NoticeKind, NoticeObservation, Observation, ObservedLight,
+    PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase, PairingUpdate,
+    RingObservation, SavedConfig, SavedConfigVerdict, SecureInput, UiChromeObservation,
+    VirtualKeyboardStatus,
 };
 use succession::{Compat, Run};
 
@@ -461,6 +462,49 @@ fn switch_host() {
     );
 }
 
+/// The overlay long-polls the backlight-effect indicator by generation; it
+/// carries the effect to name and the configured locale.
+#[test]
+fn backlight_effect_indicator() {
+    assert_wire(&AgentRequest::ObserveBacklightEffect { since: 6 }, "3106");
+    assert_wire(&AgentRequest::SetOverlayRadius { radius_px: 0 }, "3200");
+    assert_wire(&AgentRequest::ObserveUiChrome { since: 6 }, "3306");
+    assert_wire(
+        &UiChromeObservation {
+            generation: 3,
+            radius_px: 0,
+        },
+        "0300",
+    );
+    assert_wire(
+        &UiChromeObservation {
+            generation: 4,
+            radius_px: 12,
+        },
+        "040c",
+    );
+    assert_wire(
+        &BacklightEffectObservation {
+            generation: 2,
+            shown: Some(BacklightEffect::Breathing),
+            language: Some("de".into()),
+            supported: vec![BacklightEffect::Static, BacklightEffect::Breathing],
+        },
+        "02010201026465020002",
+    );
+    assert_wire(
+        &BacklightEffectObservation {
+            generation: 4,
+            shown: None,
+            language: None,
+            supported: Vec::new(),
+        },
+        "04000000",
+    );
+    assert_wire(&BacklightEffect::Static, "00");
+    assert_wire(&BacklightEffect::Waves, "06");
+}
+
 /// A chord crosses the wire as its modifier bits and the key's HID usage.
 #[test]
 fn key_combo_modifier_bits() {
@@ -523,8 +567,21 @@ fn action_ring_types() {
             current_level: 3,
             levels: 8,
             visible: true,
+            off_hint: false,
+            language: None,
         },
-        "07030801",
+        "070308010000",
+    );
+    assert_wire(
+        &BacklightObservation {
+            generation: 7,
+            current_level: 0,
+            levels: 8,
+            visible: true,
+            off_hint: true,
+            language: Some("de".to_owned()),
+        },
+        "070008010101026465",
     );
     assert_wire(&ActionRingCommandError::SessionNotFound, "00");
     assert_wire(&ActionRingCommandError::SlotEmpty, "01");
@@ -988,11 +1045,13 @@ fn semantic_read_payloads() {
         controls: BacklightControls::AUTOMATIC
             | BacklightControls::LEVEL
             | BacklightControls::DURATION,
+        effect: BacklightEffect::Static,
     });
     // v36 appends `power_save` and `controls`; the timer's `duration` and
     // `duration` ride v41 as the controls bit set (30 seconds) — the
     // validated timer now serializes as an `Option` tag plus its seconds.
-    assert_wire(&backlight, "000101020408010b011e");
+    // v44 appends the effect (Static is variant 0).
+    assert_wire(&backlight, "000101020408010b011e00");
 
     let fn_lock: Result<FnLockState, WriteError> = Ok(FnLockState {
         fn_lock: true,

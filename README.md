@@ -264,6 +264,14 @@ at your option.
 `crates/openlogi-hidpp` is a vendored fork of [`hidpp`](https://crates.io/crates/hidpp)
 by [@lus](https://github.com/lus), licensed 0BSD.
 
+The glyphs in `crates/openlogi-ui/action-icons/` are [Lucide](https://lucide.dev)
+icons, ISC license, except the overlay popup glyphs. Those are
+[Material Symbols](https://fonts.google.com/icons) by Google, Apache License 2.0,
+in both the rounded and sharp drawings (`backlight-low`, `backlight-high`,
+`backlight-high-off`, `keyboard-capslock-badge`,
+`keyboard-capslock-badge-outline`, and `lightbulb`). A corner radius of 0
+uses the sharp drawing; every other radius uses rounded.
+
 ### Logo & brand assets
 
 Thanks to [@kubai087](https://github.com/kubai087) for designing the OpenLogi

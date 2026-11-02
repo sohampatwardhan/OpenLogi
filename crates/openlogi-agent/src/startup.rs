@@ -17,6 +17,7 @@ use openlogi_agent_core::observable::ObservableState;
 use openlogi_agent_core::orchestrator::{Orchestrator, SharedHandles};
 use openlogi_agent_core::runtime::scroll::{ScrollInputHandle, ScrollRuntime};
 use openlogi_agent_core::runtime::{ActionDispatcher, ActionRequest, ActionRuntime};
+use openlogi_agent_core::ui_chrome::UiChrome;
 use openlogi_agent_core::watchers::shutdown::{StopOutcome, WatcherHandle};
 use openlogi_agent_core::watchers::{self, gesture::GestureOutputs};
 use openlogi_core::config::Config;
@@ -55,13 +56,15 @@ pub(crate) async fn bootstrap(config: Config) -> Option<Core> {
     let observable = Arc::new(ObservableState::new(env!("CARGO_PKG_VERSION").to_string()));
     #[cfg(target_os = "macos")]
     seed_permission_facts(&observable);
+    let ui_chrome = UiChrome::from_setting(config.app_settings.ui_radius);
+    let backlight_overlay = BacklightOverlayManager::default();
+    backlight_overlay.set_language(config.app_settings.language.clone());
     let orchestrator = Arc::new(Mutex::new(Orchestrator::new(
         config,
         Arc::clone(&observable),
     )));
     let shared = orchestrator.lock().await.shared();
     let inputs = InputServices::start(&shared)?;
-    let backlight_overlay = BacklightOverlayManager::default();
 
     // Shared between the hook callback (which mirrors events into it) and
     // the IPC server (which the GUI polls); the janitor turns it back off.
@@ -82,6 +85,7 @@ pub(crate) async fn bootstrap(config: Config) -> Option<Core> {
         Arc::clone(&event_monitor),
         &inputs,
         backlight_overlay.clone(),
+        ui_chrome,
     );
     Some(Core {
         orchestrator,
@@ -95,6 +99,10 @@ pub(crate) async fn bootstrap(config: Config) -> Option<Core> {
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "forwards the same runtime services AgentServer::new owns, including the overlay radius"
+)]
 fn spawn_ipc_server(
     orchestrator: Arc<Mutex<Orchestrator>>,
     shared: &SharedHandles,
@@ -103,6 +111,7 @@ fn spawn_ipc_server(
     event_monitor: Arc<EventMonitor>,
     inputs: &InputServices,
     backlight_overlay: BacklightOverlayManager,
+    ui_chrome: UiChrome,
 ) -> (
     server::RingHapticPlayer,
     tokio::sync::mpsc::UnboundedReceiver<openlogi_ipc::ClientKind>,
@@ -116,6 +125,7 @@ fn spawn_ipc_server(
         Arc::clone(&inputs.ring),
         inputs.dispatcher.clone(),
         backlight_overlay,
+        ui_chrome,
     );
     let ring_haptics = server.ring_haptics.clone();
     tokio::spawn(server::run(server));

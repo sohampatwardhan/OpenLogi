@@ -19,9 +19,9 @@ use openlogi_fixture::{
 };
 use openlogi_ipc::client::ProtocolSkew;
 use openlogi_ipc::{
-    ActionRingCommandError, ActionRingInvocation, Agent, AgentStatus, BacklightObservation,
-    ClientKind, ConfigReloadError, FlowStatus, ForegroundApps, Generation, Identity,
-    InventoryHealth, LockKeyObservation, MonitorEvent, NoticeObservation, Observation,
+    ActionRingCommandError, ActionRingInvocation, Agent, AgentStatus, BacklightEffectObservation,
+    BacklightObservation, ClientKind, ConfigReloadError, FlowStatus, ForegroundApps, Generation,
+    Identity, InventoryHealth, LockKeyObservation, MonitorEvent, NoticeObservation, Observation,
     PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase, PairingUpdate,
     RingObservation, SavedConfig, SavedConfigVerdict,
 };
@@ -127,6 +127,26 @@ impl Agent for TestAgent {
     }
 
     async fn observe_backlight(self, _: TarpcContext, _since: Generation) -> BacklightObservation {
+        unreachable!("profile capture must use one snapshot")
+    }
+
+    async fn observe_backlight_effect(
+        self,
+        _: TarpcContext,
+        _since: Generation,
+    ) -> BacklightEffectObservation {
+        unreachable!("profile capture must use one snapshot")
+    }
+
+    async fn set_overlay_radius(self, _: TarpcContext, _radius_px: u8) {
+        unreachable!("profile capture must use one snapshot")
+    }
+
+    async fn observe_ui_chrome(
+        self,
+        _: TarpcContext,
+        _since: Generation,
+    ) -> openlogi_ipc::UiChromeObservation {
         unreachable!("profile capture must use one snapshot")
     }
 
@@ -541,6 +561,7 @@ fn fixture_agent_with(edit: impl FnOnce(&mut DeviceProfile)) -> TestAgent {
         power_save: false,
         duration: None,
         controls: BacklightControls::default(),
+        effect: openlogi_core::hid::BacklightEffect::Static,
     });
     profile.standalone[0].address.identity = RAW_STANDALONE_ID.to_string();
     profile.standalone[0].serial_number = Some("RAW-LIGHT-SERIAL".to_string());

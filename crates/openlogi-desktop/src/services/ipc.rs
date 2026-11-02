@@ -73,8 +73,8 @@ pub use request::{
     ReadEasySwitchHosts, ReadFnLock, ReadForceSensing, ReadOnboard, ReadPointerSpeed,
     ReadReportRate, ReadSmartShift, ReloadConfig, RenameEasySwitchHost, RequestAccessibilityPrompt,
     RetryConnection, SetBacklight, SetDisableKeys, SetDpi, SetFnLock, SetForceSensing, SetLight,
-    SetLightManualPower, SetLighting, SetPointerSpeed, SetReportRate, SetSmartShift, StartPairing,
-    UnpairDevice,
+    SetLightManualPower, SetLighting, SetOverlayRadius, SetPointerSpeed, SetReportRate,
+    SetSmartShift, StartPairing, UnpairDevice,
 };
 
 /// Complete identity of one Disable Keys write/reload transaction.
