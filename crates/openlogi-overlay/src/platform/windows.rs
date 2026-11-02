@@ -388,7 +388,7 @@ mod tests {
             display: rect_bounds(display),
             work: rect_bounds(work),
             dpi,
-            // One card: 344×88 logical pixels.
+            // One card: 384×112 logical pixels.
             size: stack_size(1),
             edge: Edge::Bottom,
             app_id: "openlogi-notice".to_owned(),
@@ -399,19 +399,19 @@ mod tests {
     fn a_notice_sits_centred_above_the_taskbar() {
         // 1920×1080 at 100%, with a 48px taskbar along the bottom.
         let bounds = notice((0, 0, 1920, 1080), (0, 0, 1920, 1032), 96).bounds(96);
-        assert_eq!(bounds.size, size(DevicePixels(344), DevicePixels(88)));
-        // Centred: (1920 - 344) / 2 = 788. Above the taskbar by the margin:
-        // 1032 - 88 - 48 = 896.
-        assert_eq!(bounds.origin, point(DevicePixels(788), DevicePixels(896)));
+        assert_eq!(bounds.size, size(DevicePixels(384), DevicePixels(112)));
+        // Centred: (1920 - 384) / 2 = 768. Above the taskbar by the margin:
+        // 1032 - 112 - 48 = 872.
+        assert_eq!(bounds.origin, point(DevicePixels(768), DevicePixels(872)));
     }
 
     #[test]
     fn a_notice_scales_with_its_monitor_and_follows_its_work_area() {
         // A 200% monitor right of the primary, taskbar on its left edge.
         let bounds = notice((1920, 0, 4480, 1440), (2016, 0, 4480, 1440), 192).bounds(192);
-        assert_eq!(bounds.size, size(DevicePixels(688), DevicePixels(176)));
-        // (2464 - 688) / 2 = 888 into the work area; 1440 - 176 - 96 = 1168.
-        assert_eq!(bounds.origin, point(DevicePixels(2904), DevicePixels(1168)));
+        assert_eq!(bounds.size, size(DevicePixels(768), DevicePixels(224)));
+        // (2464 - 768) / 2 = 848 into the work area; 1440 - 224 - 96 = 1120.
+        assert_eq!(bounds.origin, point(DevicePixels(2864), DevicePixels(1120)));
     }
 
     #[test]
@@ -453,9 +453,9 @@ mod tests {
         let mut placement = notice((1920, 0, 4480, 1440), (1920, 80, 4480, 1400), 96);
         placement.edge = Edge::Top;
         let bounds = placement.bounds(96);
-        // Work width 2560, window 344: (2560 - 344) / 2 = 1108, plus 1920.
+        // Work width 2560, window 384: (2560 - 384) / 2 = 1088, plus 1920.
         // Top is the work top plus the 48px margin.
-        assert_eq!(bounds.origin, point(DevicePixels(3028), DevicePixels(128)));
+        assert_eq!(bounds.origin, point(DevicePixels(3008), DevicePixels(128)));
     }
 
     #[test]

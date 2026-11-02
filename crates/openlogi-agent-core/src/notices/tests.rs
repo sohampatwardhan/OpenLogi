@@ -46,6 +46,62 @@ fn a_battery_already_low_when_first_seen_is_announced() {
 }
 
 #[test]
+fn a_battery_that_is_not_low_is_never_announced_including_at_startup() {
+    let mut watch = LowBatteryWatch::default();
+    let settings = AppSettings::default();
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(21)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(40)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(100)));
+    assert!(watch.take_reading(&settings, "mouse", &discharging(20)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(20)));
+}
+
+#[test]
+fn the_users_threshold_decides_what_is_low() {
+    let mut watch = LowBatteryWatch::default();
+    let mut settings = AppSettings {
+        low_battery_threshold: openlogi_core::config::LowBatteryThreshold::new(30),
+        ..AppSettings::default()
+    };
+    assert!(
+        !watch.take_reading(&settings, "mouse", &discharging(31)),
+        "above the threshold, including the first reading"
+    );
+    assert!(watch.take_reading(&settings, "mouse", &discharging(30)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(25)));
+
+    settings.low_battery_threshold = openlogi_core::config::LowBatteryThreshold::new(5);
+    assert!(!watch.take_reading(&settings, "keyboard", &discharging(6)));
+    assert!(watch.take_reading(&settings, "keyboard", &discharging(5)));
+}
+
+#[test]
+fn raising_the_threshold_announces_a_device_that_is_now_low() {
+    let mut watch = LowBatteryWatch::default();
+    let initial = AppSettings::default();
+    assert!(!watch.take_reading(&initial, "mouse", &discharging(25)));
+    let raised = AppSettings {
+        low_battery_threshold: openlogi_core::config::LowBatteryThreshold::new(30),
+        ..AppSettings::default()
+    };
+    assert!(watch.take_reading(&raised, "mouse", &discharging(25)));
+    assert!(!watch.take_reading(&raised, "mouse", &discharging(25)));
+}
+
+#[test]
+fn lowering_the_threshold_does_not_announce_a_device_that_is_not_low() {
+    let mut watch = LowBatteryWatch::default();
+    let mut settings = AppSettings {
+        low_battery_threshold: openlogi_core::config::LowBatteryThreshold::new(40),
+        ..AppSettings::default()
+    };
+    assert!(watch.take_reading(&settings, "mouse", &discharging(25)));
+    settings.low_battery_threshold = openlogi_core::config::LowBatteryThreshold::new(10);
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(25)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(11)));
+}
+
+#[test]
 fn a_reading_wobbling_around_the_threshold_is_not_a_new_discharge() {
     let mut watch = LowBatteryWatch::default();
     assert!(watch.observe("mouse", &discharging(20)));

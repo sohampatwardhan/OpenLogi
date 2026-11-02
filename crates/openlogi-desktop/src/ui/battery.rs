@@ -9,7 +9,9 @@ use gpui::{
     RenderOnce, Styled, Window, canvas, point, prelude::FluentBuilder as _, px, quad, rgb, size,
 };
 use gpui_component::h_flex;
-use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus};
+use openlogi_core::device::{
+    BatteryInfo, BatteryLevel, BatteryStatus, LOW_BATTERY_THRESHOLD_DEFAULT,
+};
 
 use super::theme::{self, Palette, Typography as _};
 
@@ -96,23 +98,42 @@ impl BatteryIndicator {
 impl RenderOnce for BatteryIndicator {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let pal = theme::palette(cx);
+        let threshold = attention_threshold(cx);
         match self.presentation {
-            Presentation::Inline => inline_readout(&self.battery, pal).into_any_element(),
-            Presentation::Glance => glance_readout(&self.battery, pal).into_any_element(),
-            Presentation::Status { online } => {
-                status_readout(&self.battery, online, pal).into_any_element()
+            Presentation::Inline => {
+                inline_readout(&self.battery, pal, threshold).into_any_element()
             }
-            Presentation::Summary => summary_readout(&self.battery, pal).into_any_element(),
+            Presentation::Glance => {
+                glance_readout(&self.battery, pal, threshold).into_any_element()
+            }
+            Presentation::Status { online } => {
+                status_readout(&self.battery, online, pal, threshold).into_any_element()
+            }
+            Presentation::Summary => {
+                summary_readout(&self.battery, pal, threshold).into_any_element()
+            }
         }
     }
 }
 
-fn inline_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
+fn attention_threshold(cx: &App) -> u8 {
+    crate::state::AppState::try_read(cx).map_or(LOW_BATTERY_THRESHOLD_DEFAULT, |state| {
+        state.app_settings().low_battery_threshold.get()
+    })
+}
+
+fn inline_readout(battery: &BatteryInfo, pal: Palette, threshold: u8) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap_2()
         .text_caption()
-        .child(battery_glyph(battery, pal, GlyphSize::Compact, pal.page))
+        .child(battery_glyph(
+            battery,
+            pal,
+            GlyphSize::Compact,
+            pal.page,
+            threshold,
+        ))
         .child(
             gpui::div()
                 .font_weight(FontWeight::MEDIUM)
@@ -121,12 +142,18 @@ fn inline_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
         )
 }
 
-fn glance_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
+fn glance_readout(battery: &BatteryInfo, pal: Palette, threshold: u8) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap_2()
         .text_caption()
-        .child(battery_glyph(battery, pal, GlyphSize::Compact, pal.panel))
+        .child(battery_glyph(
+            battery,
+            pal,
+            GlyphSize::Compact,
+            pal.panel,
+            threshold,
+        ))
     // The number is hidden for now — the glyph's fill carries it, and
     // [`glance_hint`] repeats it on hover. Re-enable if the glyph alone
     // proves too coarse.
@@ -138,30 +165,47 @@ fn glance_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
     // )
 }
 
-fn status_readout(battery: &BatteryInfo, online: bool, pal: Palette) -> impl IntoElement {
+fn status_readout(
+    battery: &BatteryInfo,
+    online: bool,
+    pal: Palette,
+    threshold: u8,
+) -> impl IntoElement {
     h_flex()
         .w_full()
         .items_center()
         .gap_2()
         .text_caption()
-        .child(battery_glyph(battery, pal, GlyphSize::Compact, pal.panel))
+        .child(battery_glyph(
+            battery,
+            pal,
+            GlyphSize::Compact,
+            pal.panel,
+            threshold,
+        ))
         .child(
             gpui::div()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(pal.text_primary)
                 .child(ValueSlot::new(battery)),
         )
-        .when_some(context_label(battery, online), |row, label| {
+        .when_some(context_label(battery, online, threshold), |row, label| {
             row.child(gpui::div().text_color(pal.text_muted).child(label))
         })
 }
 
-fn summary_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
+fn summary_readout(battery: &BatteryInfo, pal: Palette, threshold: u8) -> impl IntoElement {
     h_flex()
         .w_full()
         .items_center()
         .gap_4()
-        .child(battery_glyph(battery, pal, GlyphSize::Summary, pal.panel))
+        .child(battery_glyph(
+            battery,
+            pal,
+            GlyphSize::Summary,
+            pal.panel,
+            threshold,
+        ))
         .child(
             gpui::div()
                 .text_heading()
@@ -172,7 +216,7 @@ fn summary_readout(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
             gpui::div()
                 .text_caption()
                 .text_color(pal.text_muted)
-                .child(summary_label(battery)),
+                .child(summary_label(battery, threshold)),
         )
 }
 
@@ -244,29 +288,29 @@ pub(crate) fn value_label(battery: &BatteryInfo) -> String {
 
 /// The status word shown beside [`value_label`], unless it would only
 /// repeat it (a level-only "Full" device that reports a full status).
-fn secondary_label(battery: &BatteryInfo) -> Option<gpui::SharedString> {
+fn secondary_label(battery: &BatteryInfo, threshold: u8) -> Option<gpui::SharedString> {
     let label = match battery.status {
         BatteryStatus::Charging | BatteryStatus::ChargingSlow => Some(tr!("device.charging")),
         BatteryStatus::Full => Some(tr!("device.full")),
         BatteryStatus::Error => Some(tr!("device.battery_error")),
-        BatteryStatus::Discharging | BatteryStatus::Unknown => {
-            battery.needs_attention().then(|| tr!("device.low_battery"))
-        }
+        BatteryStatus::Discharging | BatteryStatus::Unknown => battery
+            .needs_attention(threshold)
+            .then(|| tr!("device.low_battery")),
     };
     label.filter(|label| label.as_ref() != value_label(battery))
 }
 
 /// Everything a [`BatteryIndicator::glance`] does not show — the value plus
 /// the status and last-known words — for its caller's hover tip.
-pub(crate) fn glance_hint(battery: &BatteryInfo, online: bool) -> String {
-    match context_label(battery, online) {
+pub(crate) fn glance_hint(battery: &BatteryInfo, online: bool, threshold: u8) -> String {
+    match context_label(battery, online, threshold) {
         Some(context) => format!("{} · {context}", value_label(battery)),
         None => value_label(battery),
     }
 }
 
-fn context_label(battery: &BatteryInfo, online: bool) -> Option<String> {
-    match (!online, secondary_label(battery)) {
+fn context_label(battery: &BatteryInfo, online: bool, threshold: u8) -> Option<String> {
+    match (!online, secondary_label(battery, threshold)) {
         (true, Some(status)) => Some(format!("{} · {status}", tr!("device.last_known_battery"))),
         (true, None) => Some(tr!("device.last_known_battery").to_string()),
         (false, Some(status)) => Some(status.to_string()),
@@ -274,7 +318,7 @@ fn context_label(battery: &BatteryInfo, online: bool) -> Option<String> {
     }
 }
 
-fn summary_label(battery: &BatteryInfo) -> gpui::SharedString {
+fn summary_label(battery: &BatteryInfo, threshold: u8) -> gpui::SharedString {
     if battery_charging_no_reading(battery) {
         return tr!("device.battery");
     }
@@ -283,7 +327,7 @@ fn summary_label(battery: &BatteryInfo) -> gpui::SharedString {
         BatteryStatus::Full => tr!("device.full"),
         BatteryStatus::Error => tr!("device.battery_error"),
         BatteryStatus::Discharging | BatteryStatus::Unknown => {
-            if battery.needs_attention() {
+            if battery.needs_attention(threshold) {
                 tr!("device.low_battery")
             } else {
                 tr!("device.battery")
@@ -308,7 +352,7 @@ enum BatteryTone {
     Error,
 }
 
-fn battery_tone(battery: &BatteryInfo) -> BatteryTone {
+fn battery_tone(battery: &BatteryInfo, threshold: u8) -> BatteryTone {
     match battery.status {
         BatteryStatus::Charging | BatteryStatus::ChargingSlow => BatteryTone::Charging,
         BatteryStatus::Error => BatteryTone::Error,
@@ -316,7 +360,7 @@ fn battery_tone(battery: &BatteryInfo) -> BatteryTone {
         BatteryStatus::Discharging | BatteryStatus::Unknown => {
             if battery.level == BatteryLevel::Critical {
                 BatteryTone::Critical
-            } else if battery.needs_attention() {
+            } else if battery.needs_attention(threshold) {
                 BatteryTone::Low
             } else {
                 BatteryTone::Normal
@@ -372,8 +416,9 @@ fn battery_glyph(
     pal: Palette,
     glyph_size: GlyphSize,
     background: Hsla,
+    threshold: u8,
 ) -> impl IntoElement {
-    let tone = battery_tone(battery);
+    let tone = battery_tone(battery, threshold);
     let color = tone_color(tone, pal);
     let mark = match battery.status {
         BatteryStatus::Charging | BatteryStatus::ChargingSlow => GlyphMark::Charging,
@@ -667,7 +712,7 @@ mod tests {
                 level,
                 status,
             };
-            assert_eq!(battery_tone(&battery), expected);
+            assert_eq!(battery_tone(&battery, 20), expected);
         }
     }
 
@@ -738,22 +783,31 @@ mod tests {
     #[test]
     fn a_level_only_battery_is_toned_by_its_level() {
         assert_eq!(
-            battery_tone(&level_only(BatteryLevel::Critical, BatteryStatus::Charging)),
+            battery_tone(
+                &level_only(BatteryLevel::Critical, BatteryStatus::Charging),
+                20,
+            ),
             BatteryTone::Charging
         );
         assert_eq!(
-            battery_tone(&level_only(
-                BatteryLevel::Critical,
-                BatteryStatus::Discharging
-            )),
+            battery_tone(
+                &level_only(BatteryLevel::Critical, BatteryStatus::Discharging),
+                20,
+            ),
             BatteryTone::Critical
         );
         assert_eq!(
-            battery_tone(&level_only(BatteryLevel::Low, BatteryStatus::Discharging)),
+            battery_tone(
+                &level_only(BatteryLevel::Low, BatteryStatus::Discharging),
+                20,
+            ),
             BatteryTone::Low
         );
         assert_eq!(
-            battery_tone(&level_only(BatteryLevel::Good, BatteryStatus::Discharging)),
+            battery_tone(
+                &level_only(BatteryLevel::Good, BatteryStatus::Discharging),
+                20,
+            ),
             BatteryTone::Normal
         );
     }

@@ -197,6 +197,69 @@ fn lock_key_notifications_stay_on_unless_turned_off() {
 }
 
 #[test]
+fn low_battery_threshold_defaults_to_twenty_and_clamps() {
+    use crate::config::LowBatteryThreshold;
+
+    assert_eq!(
+        Config::default().app_settings.low_battery_threshold,
+        LowBatteryThreshold::DEFAULT
+    );
+    assert_eq!(LowBatteryThreshold::DEFAULT.get(), 20);
+    assert_eq!(LowBatteryThreshold::new(1).get(), 5);
+    assert_eq!(LowBatteryThreshold::new(90).get(), 50);
+    assert_eq!(LowBatteryThreshold::new(20).get(), 20);
+
+    let predating: Config = toml::from_str(
+        r"
+            schema_version = 10
+            [app_settings]
+            charging_notifications = false
+        ",
+    )
+    .expect("config predating the threshold loads");
+    assert_eq!(predating.app_settings.low_battery_threshold.get(), 20);
+
+    let high: Config = toml::from_str(
+        r"
+            schema_version = 10
+            [app_settings]
+            low_battery_threshold = 80
+        ",
+    )
+    .expect("a high threshold loads");
+    assert_eq!(high.app_settings.low_battery_threshold.get(), 50);
+
+    let mut cfg = Config::default();
+    cfg.app_settings.low_battery_threshold = LowBatteryThreshold::new(15);
+    assert_eq!(
+        write_and_read(&cfg)
+            .app_settings
+            .low_battery_threshold
+            .get(),
+        15
+    );
+}
+
+#[test]
+fn charging_notifications_stay_on_unless_turned_off() {
+    assert!(Config::default().app_settings.charging_notifications);
+
+    let predating: Config = toml::from_str(
+        r"
+            schema_version = 10
+            [app_settings]
+            animate_desktop_switch = false
+        ",
+    )
+    .expect("config predating the charging setting loads");
+    assert!(predating.app_settings.charging_notifications);
+
+    let mut cfg = Config::default();
+    cfg.app_settings.charging_notifications = false;
+    assert!(!write_and_read(&cfg).app_settings.charging_notifications);
+}
+
+#[test]
 fn desktop_switches_slide_unless_turned_off() {
     assert!(Config::default().app_settings.animate_desktop_switch);
 

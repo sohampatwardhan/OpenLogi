@@ -726,3 +726,107 @@ async fn the_demo_caps_lock_follows_the_users_settings() {
     let hidden = agent.observe_lock_keys(tarpc::context::current(), 0).await;
     assert_eq!(hidden.shown, None);
 }
+
+#[tokio::test(start_paused = true)]
+async fn charge_unplug_and_full_commands_show_after_they_stay() {
+    let agent = MockAgent::new(test_state());
+    let mouse = position_of(&agent, &mouse_route()).await;
+    let before = agent
+        .clone()
+        .observe_charging(tarpc::context::current(), 0)
+        .await;
+    assert!(
+        before.shown.is_none(),
+        "the profile's charging state is not a popup"
+    );
+
+    let charge = agent
+        .apply(
+            Command::Power {
+                device: mouse,
+                status: BatteryStatus::Charging,
+                percentage: Some(80),
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("charge");
+    assert!(charge.contains("showing Started"), "{charge}");
+    let charging = agent
+        .clone()
+        .observe_charging(tarpc::context::current(), before.generation)
+        .await;
+    assert_eq!(
+        charging.shown.expect("charging").event,
+        openlogi_ipc::ChargingEvent::Started
+    );
+
+    let unplug = agent
+        .apply(
+            Command::Power {
+                device: mouse,
+                status: BatteryStatus::Discharging,
+                percentage: Some(80),
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("unplug");
+    assert!(unplug.contains("showing Stopped"), "{unplug}");
+    let stopped = agent
+        .clone()
+        .observe_charging(tarpc::context::current(), charging.generation)
+        .await;
+    let unplugged = stopped.shown.expect("unplugged");
+    assert_eq!(unplugged.event, openlogi_ipc::ChargingEvent::Stopped);
+    assert_eq!(unplugged.percentage, Some(80));
+
+    let full = agent
+        .apply(
+            Command::Power {
+                device: mouse,
+                status: BatteryStatus::Full,
+                percentage: Some(100),
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("full");
+    assert!(full.contains("showing Full"), "{full}");
+    let done = agent
+        .clone()
+        .observe_charging(tarpc::context::current(), stopped.generation)
+        .await;
+    assert_eq!(
+        done.shown.expect("full").event,
+        openlogi_ipc::ChargingEvent::Full
+    );
+}
+
+#[test]
+fn charge_unplug_and_full_parse() {
+    assert!(matches!(
+        parse("charge 1 80").expect("parse"),
+        Some(Command::Power {
+            device: 0,
+            status: BatteryStatus::Charging,
+            percentage: Some(80),
+        })
+    ));
+    assert!(matches!(
+        parse("unplug 2").expect("parse"),
+        Some(Command::Power {
+            device: 1,
+            status: BatteryStatus::Discharging,
+            percentage: None,
+        })
+    ));
+    assert!(matches!(
+        parse("full 1 100").expect("parse"),
+        Some(Command::Power {
+            device: 0,
+            status: BatteryStatus::Full,
+            percentage: Some(100),
+        })
+    ));
+}

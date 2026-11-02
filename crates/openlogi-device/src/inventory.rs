@@ -33,7 +33,7 @@ pub mod standalone;
 
 use cache::{CACHE_MISS_GRACE, CacheKey, CacheOutcome, Cached};
 use channel_cache::ChannelCache;
-use events::{ChannelEventSubscriptions, EventNotifier, EventSubscriptionHandle};
+use events::{ChannelEventSubscriptions, ChannelNode, EventNotifier, EventSubscriptionHandle};
 use persist::{ProbeCacheSnapshot, ProbeCacheStore};
 use probe::{NodeProbe, PassContext, ProbeTimeouts, ProbeVerdict, probe_one};
 #[cfg(test)]
@@ -550,7 +550,12 @@ impl Enumerator {
                     let events = self.event_notifier.as_ref().map(|notifier| {
                         let protocol = find_receiver(info.vendor_id, info.product_id)
                             .map(|receiver| receiver.protocol);
-                        ChannelEventSubscriptions::attach(&channel, protocol, notifier.clone())
+                        ChannelEventSubscriptions::attach(
+                            &channel,
+                            protocol,
+                            ChannelNode::new(info.vendor_id, info.product_id),
+                            notifier.clone(),
+                        )
                     });
                     let event_handle = events.as_ref().map(ChannelEventSubscriptions::handle);
                     self.channels.insert(

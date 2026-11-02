@@ -56,12 +56,12 @@ use openlogi_core::hid::{
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, ActionRingPresentation, AgentRequest,
     AgentResponse, AgentSnapshot, AgentStatus, BacklightEffectObservation, BacklightObservation,
-    ChosenLight, ClientKind, ConfigReloadError, FlowLinkState, FlowPeerStatus, FlowStatus,
-    ForegroundApps, FoundDevice, Identity, InventoryHealth, LockKeyChange, LockKeyObservation,
-    MonitorEvent, Notice, NoticeKind, NoticeObservation, Observation, ObservedLight,
-    PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase, PairingUpdate,
-    RingObservation, SavedConfig, SavedConfigVerdict, SecureInput, UiChromeObservation,
-    VirtualKeyboardStatus,
+    ChargingEvent, ChargingObservation, ChargingPopup, ChosenLight, ClientKind, ConfigReloadError,
+    FlowLinkState, FlowPeerStatus, FlowStatus, ForegroundApps, FoundDevice, Identity,
+    InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, Notice, NoticeKind,
+    NoticeObservation, Observation, ObservedLight, PROTOCOL_VERSION, PairingCommandError,
+    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
+    SecureInput, UiChromeObservation, VirtualKeyboardStatus,
 };
 use succession::{Compat, Run};
 
@@ -503,6 +503,35 @@ fn backlight_effect_indicator() {
     );
     assert_wire(&BacklightEffect::Static, "00");
     assert_wire(&BacklightEffect::Waves, "06");
+}
+
+/// The overlay long-polls the charging indicator by generation. The popup
+/// carries the device, the phase it changed to, and the reading then.
+#[test]
+fn charging_indicator() {
+    assert_wire(&AgentRequest::ObserveCharging { since: 4 }, "3404");
+    assert_wire(
+        &ChargingObservation {
+            generation: 2,
+            shown: Some(ChargingPopup {
+                name: Some("MX".into()),
+                kind: DeviceKind::Mouse,
+                event: ChargingEvent::Started,
+                percentage: Some(80),
+                level: BatteryLevel::Good,
+            }),
+            language: Some("de".into()),
+        },
+        "020101024d58000001500201026465",
+    );
+    assert_wire(
+        &ChargingObservation {
+            generation: 3,
+            shown: None,
+            language: None,
+        },
+        "030000",
+    );
 }
 
 /// A chord crosses the wire as its modifier bits and the key's HID usage.
@@ -1050,7 +1079,7 @@ fn semantic_read_payloads() {
     // v36 appends `power_save` and `controls`; the timer's `duration` and
     // `duration` ride v41 as the controls bit set (30 seconds) — the
     // validated timer now serializes as an `Option` tag plus its seconds.
-    // v44 appends the effect (Static is variant 0).
+    // v45 appends the effect (Static is variant 0).
     assert_wire(&backlight, "000101020408010b011e00");
 
     let fn_lock: Result<FnLockState, WriteError> = Ok(FnLockState {

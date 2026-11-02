@@ -1,5 +1,5 @@
-//! Chrome shared by the transient indicators: brightness, lock keys, and the
-//! backlight-effect list.
+//! Chrome shared by the transient indicators: brightness, lock keys, the
+//! backlight-effect list, charging, and connection.
 //!
 //! They float over whatever is on the desktop, so they stay a dark card in
 //! both appearances — the same choice the notices make. The blue is the brand
@@ -27,6 +27,20 @@ pub(crate) const TRACK: Hsla = neutral(0.25, 1.0);
 pub(crate) const PILL: Hsla = neutral(0.27, 1.0);
 /// A lock key that just turned off.
 pub(crate) const MUTED: Hsla = neutral(0.60, 1.0);
+
+/// Lock-key indicator size. Wide enough for the longest translated title on
+/// one line.
+pub(crate) const LOCK_WIDTH: f32 = 360.0;
+pub(crate) const LOCK_HEIGHT: f32 = 72.0;
+
+/// Charging uses the lock-key width and a taller card: a name, a status
+/// line, and a level bar in the same chrome.
+pub(crate) const CHARGING_WIDTH: f32 = LOCK_WIDTH;
+pub(crate) const CHARGING_HEIGHT: f32 = 88.0;
+
+/// Level bar thickness, shared by the brightness and charging cards.
+pub(crate) const BAR_HEIGHT: f32 = 8.0;
+pub(crate) const BAR_RADIUS: f32 = 4.0;
 
 const fn neutral(lightness: f32, alpha: f32) -> Hsla {
     Hsla {

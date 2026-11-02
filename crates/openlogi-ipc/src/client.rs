@@ -33,8 +33,8 @@ use tarpc::client::{self, RpcError};
 use tarpc::context::{self, Context};
 
 use crate::{
-    AgentClient, BacklightEffectObservation, BacklightObservation, ClientKind, Generation,
-    LockKeyObservation, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
+    AgentClient, BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
+    Generation, LockKeyObservation, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
     RingObservation, UiChromeObservation, transport,
 };
 
@@ -246,6 +246,12 @@ impl Stamped for UiChromeObservation {
     }
 }
 
+impl Stamped for ChargingObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
 /// One connection's view of the agent's generation counter.
 ///
 /// Starts at 0 — "I have seen nothing" — so the first answer is the agent's
@@ -396,6 +402,17 @@ impl Observer<UiChromeObservation> {
         Self::new(client, |client, since| {
             let client = client.clone();
             Box::pin(async move { client.observe_ui_chrome(observe_context(), since).await })
+        })
+    }
+}
+
+impl Observer<ChargingObservation> {
+    /// Observe the transient charging indicator over `client`.
+    #[must_use]
+    pub fn charging(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move { client.observe_charging(observe_context(), since).await })
         })
     }
 }

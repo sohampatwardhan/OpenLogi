@@ -159,6 +159,10 @@ pub(crate) fn glow_canvas(geom: Arc<GlowGeometry>, color: Hsla) -> impl IntoElem
 /// cards gain the same ring on hover or keyboard focus.
 /// Returns an unstyled semantic button so the gallery can add its activation
 /// handler without giving up keyboard behavior.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the gallery card already takes its inputs one by one; the threshold is the app setting those inputs are toned with"
+)]
 fn device_card(
     record: &DeviceRecord,
     saved_transport: Option<ObservedConnection>,
@@ -167,6 +171,7 @@ fn device_card(
     light_enabled: bool,
     light_settings: LightSettings,
     pal: Palette,
+    threshold: u8,
 ) -> BaseButton {
     BaseButton::new((ElementId::from("device-card"), record.record_key()))
         .w_full()
@@ -218,7 +223,7 @@ fn device_card(
                             .absolute()
                             .top_0()
                             .right_0()
-                            .child(battery_glance(battery, record)),
+                            .child(battery_glance(battery, record, threshold)),
                     )
                 }),
         )
@@ -326,8 +331,9 @@ fn transport_glance(
 fn battery_glance(
     battery: &openlogi_core::device::BatteryInfo,
     record: &DeviceRecord,
+    threshold: u8,
 ) -> impl IntoElement {
-    let hint: SharedString = glance_hint(battery, record.online).into();
+    let hint: SharedString = glance_hint(battery, record.online, threshold).into();
     div()
         .id((ElementId::from("battery-glance"), record.record_key()))
         .flex_none()

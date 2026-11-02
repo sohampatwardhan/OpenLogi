@@ -316,6 +316,20 @@ pub struct AppSettings {
     /// Logi Options+; off switches instantly. Only macOS reads it.
     #[serde(default = "default_true")]
     pub animate_desktop_switch: bool,
+    /// Whether the overlay briefly shows a device starting to charge,
+    /// finishing charging, or being unplugged. **On by default.** The phase
+    /// seen when the agent starts, or when a device connects, is not a
+    /// change. Appended after [`Self::animate_desktop_switch`] so it does
+    /// not take the slot an in-flight backlight-notification setting uses,
+    /// between [`Self::lock_key_notifications`] and that switch.
+    #[serde(default = "default_true")]
+    pub charging_notifications: bool,
+    /// Charge at or below which a discharging battery needs attention, in
+    /// percent. **20 by default**, clamped to 5..=50. A device with no
+    /// percentage still uses its firmware low or critical level. See
+    /// [`BatteryInfo::needs_attention`](crate::device::BatteryInfo::needs_attention).
+    #[serde(default)]
+    pub low_battery_threshold: LowBatteryThreshold,
 }
 
 const SENSITIVITY_MIN: u8 = 1;
@@ -523,7 +537,107 @@ impl Default for AppSettings {
             low_battery_notifications: true,
             lock_key_notifications: true,
             animate_desktop_switch: true,
+            charging_notifications: true,
+            low_battery_threshold: LowBatteryThreshold::DEFAULT,
         }
+    }
+}
+
+/// The percentage at or below which a discharging battery needs attention.
+///
+/// Stored as a plain integer. A hand-edited value outside 5..=50 is clamped
+/// into that range, so an old or rough config still loads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LowBatteryThreshold(u8);
+
+impl LowBatteryThreshold {
+    /// The out-of-the-box threshold.
+    pub const DEFAULT: Self = Self(crate::device::LOW_BATTERY_THRESHOLD_DEFAULT);
+    /// The lowest percentage the setting keeps.
+    pub const MIN: Self = Self(crate::device::LOW_BATTERY_THRESHOLD_MIN);
+    /// The highest percentage the setting keeps.
+    pub const MAX: Self = Self(crate::device::LOW_BATTERY_THRESHOLD_MAX);
+
+    /// Clamp `percent` into [`Self::MIN`]..=[`Self::MAX`].
+    #[must_use]
+    pub const fn new(percent: u8) -> Self {
+        let min = crate::device::LOW_BATTERY_THRESHOLD_MIN;
+        let max = crate::device::LOW_BATTERY_THRESHOLD_MAX;
+        let percent = if percent < min {
+            min
+        } else if percent > max {
+            max
+        } else {
+            percent
+        };
+        Self(percent)
+    }
+
+    /// The percentage to pass to [`BatteryInfo::needs_attention`](crate::device::BatteryInfo::needs_attention).
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+
+    /// The threshold nearest a slider position.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the position is rounded into 5..=50 before the cast"
+    )]
+    pub fn from_rounded(raw: f32) -> Self {
+        let percent = if raw.is_nan() {
+            f32::from(crate::device::LOW_BATTERY_THRESHOLD_DEFAULT)
+        } else {
+            raw.round().clamp(
+                f32::from(crate::device::LOW_BATTERY_THRESHOLD_MIN),
+                f32::from(crate::device::LOW_BATTERY_THRESHOLD_MAX),
+            )
+        };
+        Self(percent as u8)
+    }
+}
+
+impl Default for LowBatteryThreshold {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl std::fmt::Display for LowBatteryThreshold {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}%", self.0)
+    }
+}
+
+impl From<u8> for LowBatteryThreshold {
+    fn from(percent: u8) -> Self {
+        Self::new(percent)
+    }
+}
+
+impl From<LowBatteryThreshold> for u8 {
+    fn from(threshold: LowBatteryThreshold) -> Self {
+        threshold.0
+    }
+}
+
+impl From<LowBatteryThreshold> for f32 {
+    fn from(threshold: LowBatteryThreshold) -> Self {
+        f32::from(threshold.0)
+    }
+}
+
+impl Serialize for LowBatteryThreshold {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u8(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for LowBatteryThreshold {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::new(u8::deserialize(deserializer)?))
     }
 }
 
@@ -700,7 +814,8 @@ impl Default for MomentumScrolling {
 /// ([`AppSettings::show_in_menu_bar`], [`AppSettings::capture_mouse_events`],
 /// [`AppSettings::auto_download_assets`],
 /// [`AppSettings::low_battery_notifications`],
-/// [`AppSettings::animate_desktop_switch`]), so configs predating a field keep
+/// [`AppSettings::animate_desktop_switch`],
+/// [`AppSettings::charging_notifications`]), so configs predating a field keep
 /// the out-of-the-box behavior.
 fn default_true() -> bool {
     true

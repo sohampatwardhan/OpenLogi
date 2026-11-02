@@ -30,6 +30,9 @@ use gpui::{AssetSource, Result, SharedString};
 /// [Material Symbols](https://fonts.google.com/icons) by Google, Apache
 /// License 2.0. The rest of the app stays on Lucide.
 ///
+/// [Material Symbols](https://fonts.google.com/icons) (Apache-2.0) supply the
+/// battery glyphs. Every other icon stays Lucide.
+///
 /// `x.svg` duplicates `IconName::Close` on purpose: the overlay does not depend
 /// on gpui-component, and its ring cancel target has to match the settings-side
 /// preview of the same ring exactly.
@@ -44,7 +47,36 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/backlight-low-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-rounded.svg"))),
     ("action-icons/backlight-low-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-sharp.svg"))),
     ("action-icons/ban.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/ban.svg"))),
-    ("action-icons/battery-low.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-low.svg"))),
+    ("action-icons/battery-android-0-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-rounded.svg"))),
+    ("action-icons/battery-android-0-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-sharp.svg"))),
+    ("action-icons/battery-android-1-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-1-rounded.svg"))),
+    ("action-icons/battery-android-1-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-1-sharp.svg"))),
+    ("action-icons/battery-android-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-2-rounded.svg"))),
+    ("action-icons/battery-android-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-2-sharp.svg"))),
+    ("action-icons/battery-android-3-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-3-rounded.svg"))),
+    ("action-icons/battery-android-3-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-3-sharp.svg"))),
+    ("action-icons/battery-android-4-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-4-rounded.svg"))),
+    ("action-icons/battery-android-4-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-4-sharp.svg"))),
+    ("action-icons/battery-android-5-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-5-rounded.svg"))),
+    ("action-icons/battery-android-5-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-5-sharp.svg"))),
+    ("action-icons/battery-android-6-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-6-rounded.svg"))),
+    ("action-icons/battery-android-6-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-6-sharp.svg"))),
+    ("action-icons/battery-android-alert-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-rounded.svg"))),
+    ("action-icons/battery-android-alert-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-sharp.svg"))),
+    ("action-icons/battery-android-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-rounded.svg"))),
+    ("action-icons/battery-android-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-sharp.svg"))),
+    ("action-icons/battery-charging-20-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-20-2-rounded.svg"))),
+    ("action-icons/battery-charging-20-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-20-2-sharp.svg"))),
+    ("action-icons/battery-charging-30-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-30-2-rounded.svg"))),
+    ("action-icons/battery-charging-30-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-30-2-sharp.svg"))),
+    ("action-icons/battery-charging-50-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-50-2-rounded.svg"))),
+    ("action-icons/battery-charging-50-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-50-2-sharp.svg"))),
+    ("action-icons/battery-charging-60-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-60-2-rounded.svg"))),
+    ("action-icons/battery-charging-60-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-60-2-sharp.svg"))),
+    ("action-icons/battery-charging-80-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-80-2-rounded.svg"))),
+    ("action-icons/battery-charging-80-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-80-2-sharp.svg"))),
+    ("action-icons/battery-charging-full-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-rounded.svg"))),
+    ("action-icons/battery-charging-full-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-sharp.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
     ("action-icons/bluetooth.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bluetooth.svg"))),
     ("action-icons/book-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/book-open.svg"))),
@@ -125,8 +157,268 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
 /// the same mark, so neither side names the asset itself.
 pub const RING_CANCEL_ICON: &str = "action-icons/x.svg";
 
-/// The glyph on the overlay's low-battery notice.
-pub const LOW_BATTERY_ICON: &str = "action-icons/battery-low.svg";
+/// Corner radius gpui-component gives a theme that does not set its own, in
+/// whole pixels.
+///
+/// `Theme` starts at 6px, and applying a theme file replaces that only when
+/// the file sets `radius`. No theme OpenLogi ships sets it, so an unset
+/// `ui_radius` is this value.
+pub const DEFAULT_THEME_RADIUS_PX: u8 = 6;
+
+/// [`DEFAULT_THEME_RADIUS_PX`] as the `f32` the theme engine works in.
+pub const DEFAULT_THEME_RADIUS: f32 = DEFAULT_THEME_RADIUS_PX as f32;
+
+/// The effective radius: the user's override, or `theme_radius_px` when they
+/// left it to the theme.
+#[must_use]
+pub const fn effective_radius(ui_radius: Option<u8>, theme_radius_px: u8) -> u8 {
+    match ui_radius {
+        Some(radius) => radius,
+        None => theme_radius_px,
+    }
+}
+
+/// Which Material Symbols cut a popup glyph uses.
+///
+/// The effective UI corner radius decides. Radius 0 is [`Self::Sharp`].
+/// Every other radius — 6, 12, or a theme's own radius — is [`Self::Rounded`].
+///
+/// Popup glyphs that ship both cuts take this and call [`Self::path`]. The
+/// backlight, effect-list, and lock-key glyphs build their path from a stem
+/// with [`material_icon_path`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaterialSymbolStyle {
+    /// `-rounded`, for any corner radius other than 0.
+    Rounded,
+    /// `-sharp`, for a corner radius of 0.
+    Sharp,
+}
+
+impl MaterialSymbolStyle {
+    /// The cut for `radius_px`.
+    #[must_use]
+    pub const fn from_radius(radius_px: f32) -> Self {
+        if radius_px == 0.0 {
+            Self::Sharp
+        } else {
+            Self::Rounded
+        }
+    }
+
+    /// The cut for a whole-pixel radius, as the agent reports it.
+    #[must_use]
+    pub const fn from_radius_px(radius_px: u8) -> Self {
+        if radius_px == 0 {
+            Self::Sharp
+        } else {
+            Self::Rounded
+        }
+    }
+
+    /// The cut for the stored override.
+    ///
+    /// `ui_radius` is `0`, `6`, or `12` when the Appearance page set one.
+    /// `None` keeps `theme_radius_px`, the active theme's own radius.
+    /// Callers that do not have the theme engine pass [`DEFAULT_THEME_RADIUS`].
+    #[must_use]
+    pub const fn from_ui_radius(ui_radius: Option<u8>, theme_radius_px: f32) -> Self {
+        match ui_radius {
+            // `f32::from` is not stably const. Every `u8` is exactly
+            // representable, so the cast does not round.
+            Some(radius) => Self::from_radius(radius as f32),
+            None => Self::from_radius(theme_radius_px),
+        }
+    }
+
+    /// `rounded` or `sharp`, the filename suffix of this cut.
+    #[must_use]
+    pub const fn suffix(self) -> &'static str {
+        match self {
+            Self::Rounded => "rounded",
+            Self::Sharp => "sharp",
+        }
+    }
+
+    /// The asset path of this cut. `rounded` and `sharp` are the two files
+    /// of one glyph.
+    #[must_use]
+    pub const fn path(self, rounded: &'static str, sharp: &'static str) -> &'static str {
+        match self {
+            Self::Rounded => rounded,
+            Self::Sharp => sharp,
+        }
+    }
+}
+
+/// Asset path `action-icons/{stem}-{sharp|rounded}.svg`.
+///
+/// `stem` is the Material Symbol name without its cut suffix, such as
+/// `backlight-low` or `lightbulb`.
+#[must_use]
+pub fn material_icon_path(stem: &str, style: MaterialSymbolStyle) -> String {
+    format!("action-icons/{stem}-{}.svg", style.suffix())
+}
+
+/// Both cuts of one battery glyph.
+#[derive(Clone, Copy)]
+struct BatteryGlyph {
+    rounded: &'static str,
+    sharp: &'static str,
+}
+
+impl BatteryGlyph {
+    const fn path(self, style: MaterialSymbolStyle) -> &'static str {
+        style.path(self.rounded, self.sharp)
+    }
+}
+
+/// The low-battery notice glyph, `battery-android-alert`.
+const LOW_BATTERY: BatteryGlyph = BatteryGlyph {
+    rounded: "action-icons/battery-android-alert-rounded.svg",
+    sharp: "action-icons/battery-android-alert-sharp.svg",
+};
+
+/// A full horizontal battery, for the fully-charged popup.
+const BATTERY_FULL: BatteryGlyph = BatteryGlyph {
+    rounded: "action-icons/battery-android-full-rounded.svg",
+    sharp: "action-icons/battery-android-full-sharp.svg",
+};
+
+/// Discharging glyphs, empty to full. Index `0` is `battery-android-0`;
+/// index `7` is [`BATTERY_FULL`].
+///
+/// `percentage * 8 / 100` (clamped to `0..=7`) splits `0..=100` into eight
+/// equal bands:
+///
+/// | charge | glyph |
+/// | --- | --- |
+/// | 0..=12 | `battery-android-0` |
+/// | 13..=24 | `battery-android-1` |
+/// | 25..=37 | `battery-android-2` |
+/// | 38..=49 | `battery-android-3` |
+/// | 50..=62 | `battery-android-4` |
+/// | 63..=74 | `battery-android-5` |
+/// | 75..=87 | `battery-android-6` |
+/// | 88..=100 | `battery-android-full` |
+const BATTERY_LEVELS: [BatteryGlyph; 8] = [
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-0-rounded.svg",
+        sharp: "action-icons/battery-android-0-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-1-rounded.svg",
+        sharp: "action-icons/battery-android-1-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-2-rounded.svg",
+        sharp: "action-icons/battery-android-2-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-3-rounded.svg",
+        sharp: "action-icons/battery-android-3-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-4-rounded.svg",
+        sharp: "action-icons/battery-android-4-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-5-rounded.svg",
+        sharp: "action-icons/battery-android-5-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-android-6-rounded.svg",
+        sharp: "action-icons/battery-android-6-sharp.svg",
+    },
+    BATTERY_FULL,
+];
+
+/// Charging glyphs. Each step is the highest threshold at or below the
+/// percentage; a reading under 20 stays on `battery-charging-20-2`.
+///
+/// Material Symbols has no `battery-charging-90-2` (rounded or sharp). The
+/// 80 step therefore covers 80..=99, and 100 is `battery-charging-full-2`.
+const BATTERY_CHARGING_STEPS: [(u8, BatteryGlyph); 6] = [
+    (
+        20,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-20-2-rounded.svg",
+            sharp: "action-icons/battery-charging-20-2-sharp.svg",
+        },
+    ),
+    (
+        30,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-30-2-rounded.svg",
+            sharp: "action-icons/battery-charging-30-2-sharp.svg",
+        },
+    ),
+    (
+        50,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-50-2-rounded.svg",
+            sharp: "action-icons/battery-charging-50-2-sharp.svg",
+        },
+    ),
+    (
+        60,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-60-2-rounded.svg",
+            sharp: "action-icons/battery-charging-60-2-sharp.svg",
+        },
+    ),
+    (
+        80,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-80-2-rounded.svg",
+            sharp: "action-icons/battery-charging-80-2-sharp.svg",
+        },
+    ),
+    (
+        100,
+        BatteryGlyph {
+            rounded: "action-icons/battery-charging-full-2-rounded.svg",
+            sharp: "action-icons/battery-charging-full-2-sharp.svg",
+        },
+    ),
+];
+
+/// The low-battery notice glyph for `style`.
+#[must_use]
+pub fn low_battery_icon(style: MaterialSymbolStyle) -> &'static str {
+    LOW_BATTERY.path(style)
+}
+
+/// The fully-charged glyph for `style`: `battery-android-full`.
+#[must_use]
+pub fn battery_full_icon(style: MaterialSymbolStyle) -> &'static str {
+    BATTERY_FULL.path(style)
+}
+
+/// The discharging battery glyph for `percentage` (`0..=100`) in `style`.
+#[must_use]
+pub fn battery_level_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
+    let percentage = u16::from(percentage.min(100));
+    let step = usize::from((percentage * 8 / 100).min(7));
+    BATTERY_LEVELS[step].path(style)
+}
+
+/// The charging battery glyph for `percentage` (`0..=100`) in `style`.
+///
+/// The chosen step is the greatest of 20, 30, 50, 60, 80, and 100 that is
+/// still at or below `percentage`. Anything under 20 uses the 20 step.
+/// There is no 90 step: Material Symbols does not ship
+/// `battery-charging-90-2`, so 80 covers 80..=99.
+#[must_use]
+pub fn battery_charging_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
+    let percentage = percentage.min(100);
+    let mut icon = BATTERY_CHARGING_STEPS[0].1;
+    for (step, candidate) in BATTERY_CHARGING_STEPS {
+        if percentage >= step {
+            icon = candidate;
+        }
+    }
+    icon.path(style)
+}
 
 /// Material Symbol for a backlight at the low end of its scale.
 pub const BACKLIGHT_LOW_ICON: &str = "action-icons/backlight-low-rounded.svg";
@@ -148,17 +440,13 @@ pub const LOCK_KEY_ON_ICON: &str = "action-icons/keyboard-capslock-badge-rounded
 pub const LOCK_KEY_OFF_ICON: &str = "action-icons/keyboard-capslock-badge-outline-rounded.svg";
 
 /// The backlight glyph for `level` on a keyboard whose highest level is
-/// `max_level`, in `corner`.
+/// `max_level`, in `style`.
 ///
 /// Level 0 is off. Above that, the low glyph covers the bottom of the scale
 /// and the high glyph the rest, matching 1–3 low and 4–7 high when
 /// `max_level` is 7: low while `level * 7 <= max_level * 3`.
 #[must_use]
-pub fn backlight_level_icon(
-    level: u8,
-    max_level: u8,
-    corner: crate::material::MaterialCorner,
-) -> String {
+pub fn backlight_level_icon(level: u8, max_level: u8, style: MaterialSymbolStyle) -> String {
     let stem = if level == 0 {
         "backlight-high-off"
     } else {
@@ -170,26 +458,26 @@ pub fn backlight_level_icon(
             "backlight-high"
         }
     };
-    crate::material::material_icon_path(stem, corner)
+    material_icon_path(stem, style)
 }
 
-/// The lightbulb above the effect-cycle list, in `corner`.
+/// The lightbulb above the effect-cycle list, in `style`.
 #[must_use]
-pub fn backlight_effect_icon(corner: crate::material::MaterialCorner) -> String {
-    crate::material::material_icon_path("lightbulb", corner)
+pub fn backlight_effect_icon(style: MaterialSymbolStyle) -> String {
+    material_icon_path("lightbulb", style)
 }
 
-/// The lock-key glyph for a key that is now `engaged` or not, in `corner`.
+/// The lock-key glyph for a key that is now `engaged` or not, in `style`.
 ///
 /// Caps Lock, Num Lock, and Scroll Lock share the Caps Lock badge.
 #[must_use]
-pub fn lock_key_icon(engaged: bool, corner: crate::material::MaterialCorner) -> String {
+pub fn lock_key_icon(engaged: bool, style: MaterialSymbolStyle) -> String {
     let stem = if engaged {
         "keyboard-capslock-badge"
     } else {
         "keyboard-capslock-badge-outline"
     };
-    crate::material::material_icon_path(stem, corner)
+    material_icon_path(stem, style)
 }
 
 /// The embedded SVG for an `action-icons/…` asset path — the same path
@@ -229,7 +517,36 @@ mod tests {
     use openlogi_core::binding::ActionRingIcon;
 
     use super::*;
-    use crate::material::MaterialCorner;
+
+    #[test]
+    fn a_whole_pixel_radius_of_zero_is_sharp_and_every_other_is_rounded() {
+        assert_eq!(
+            MaterialSymbolStyle::from_radius_px(0),
+            MaterialSymbolStyle::Sharp
+        );
+        for radius in [1_u8, 6, 12, 255] {
+            assert_eq!(
+                MaterialSymbolStyle::from_radius_px(radius),
+                MaterialSymbolStyle::Rounded,
+                "{radius}"
+            );
+        }
+        assert_eq!(effective_radius(None, 8), 8);
+        assert_eq!(effective_radius(Some(0), 8), 0);
+        assert_eq!(f32::from(DEFAULT_THEME_RADIUS_PX), DEFAULT_THEME_RADIUS);
+    }
+
+    #[test]
+    fn the_material_path_names_the_stem_and_the_cut() {
+        assert_eq!(
+            material_icon_path("lightbulb", MaterialSymbolStyle::Rounded),
+            "action-icons/lightbulb-rounded.svg"
+        );
+        assert_eq!(
+            material_icon_path("backlight-high-off", MaterialSymbolStyle::Sharp),
+            "action-icons/backlight-high-off-sharp.svg"
+        );
+    }
 
     #[test]
     fn the_shared_ring_cancel_icon_is_embedded() {
@@ -243,30 +560,30 @@ mod tests {
 
     #[test]
     fn the_low_battery_notice_icon_is_embedded() {
-        let loaded = ActionIcons.load(LOW_BATTERY_ICON);
-        assert!(
-            matches!(loaded, Ok(Some(_))),
-            "{LOW_BATTERY_ICON} is missing"
-        );
+        for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
+            let path = low_battery_icon(style);
+            let loaded = ActionIcons.load(path);
+            assert!(matches!(loaded, Ok(Some(_))), "{path} is missing");
+        }
     }
 
     #[test]
     fn the_lock_key_indicator_icons_are_embedded() {
         for engaged in [true, false] {
-            for corner in [MaterialCorner::Rounded, MaterialCorner::Sharp] {
-                let path = lock_key_icon(engaged, corner);
+            for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
+                let path = lock_key_icon(engaged, style);
                 assert!(embedded_icon(&path).is_some(), "{path} is missing");
             }
         }
         assert_ne!(
-            lock_key_icon(true, MaterialCorner::Rounded),
-            lock_key_icon(false, MaterialCorner::Rounded)
+            lock_key_icon(true, MaterialSymbolStyle::Rounded),
+            lock_key_icon(false, MaterialSymbolStyle::Rounded)
         );
     }
 
     #[test]
     fn backlight_icons_follow_a_seven_step_scale() {
-        let rounded = MaterialCorner::Rounded;
+        let rounded = MaterialSymbolStyle::Rounded;
         assert_eq!(backlight_level_icon(0, 7, rounded), BACKLIGHT_OFF_ICON);
         for level in 1..=3 {
             assert_eq!(
@@ -286,7 +603,7 @@ mod tests {
         assert_eq!(backlight_level_icon(6, 14, rounded), BACKLIGHT_LOW_ICON);
         assert_eq!(backlight_level_icon(7, 14, rounded), BACKLIGHT_HIGH_ICON);
         assert_eq!(
-            backlight_level_icon(4, 7, MaterialCorner::Sharp),
+            backlight_level_icon(4, 7, MaterialSymbolStyle::Sharp),
             "action-icons/backlight-high-sharp.svg"
         );
         assert_eq!(
@@ -318,6 +635,111 @@ mod tests {
                 "{path} must tint with the popup colour"
             );
         }
+    }
+
+    #[test]
+    fn the_battery_glyphs_follow_the_percentage_bands() {
+        for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
+            let suffix = style.suffix();
+            let level = |percentage, name| {
+                assert_eq!(
+                    battery_level_icon(percentage, style),
+                    format!("action-icons/{name}-{suffix}.svg"),
+                    "{percentage}% {suffix}"
+                );
+            };
+            // Lower and upper edge of each equal band.
+            level(0, "battery-android-0");
+            level(12, "battery-android-0");
+            level(13, "battery-android-1");
+            level(24, "battery-android-1");
+            level(25, "battery-android-2");
+            level(37, "battery-android-2");
+            level(38, "battery-android-3");
+            level(49, "battery-android-3");
+            level(50, "battery-android-4");
+            level(62, "battery-android-4");
+            level(63, "battery-android-5");
+            level(74, "battery-android-5");
+            level(75, "battery-android-6");
+            level(87, "battery-android-6");
+            level(88, "battery-android-full");
+            level(100, "battery-android-full");
+
+            let charging = |percentage, name| {
+                assert_eq!(
+                    battery_charging_icon(percentage, style),
+                    format!("action-icons/{name}-{suffix}.svg"),
+                    "{percentage}% {suffix}"
+                );
+            };
+            charging(0, "battery-charging-20-2");
+            charging(19, "battery-charging-20-2");
+            charging(20, "battery-charging-20-2");
+            charging(29, "battery-charging-20-2");
+            charging(30, "battery-charging-30-2");
+            charging(49, "battery-charging-30-2");
+            charging(50, "battery-charging-50-2");
+            charging(59, "battery-charging-50-2");
+            charging(60, "battery-charging-60-2");
+            charging(79, "battery-charging-60-2");
+            // No battery-charging-90-2 exists, so 80 covers through 99.
+            charging(80, "battery-charging-80-2");
+            charging(89, "battery-charging-80-2");
+            charging(90, "battery-charging-80-2");
+            charging(99, "battery-charging-80-2");
+            charging(100, "battery-charging-full-2");
+
+            assert_eq!(
+                battery_full_icon(style),
+                format!("action-icons/battery-android-full-{suffix}.svg")
+            );
+            assert!(
+                embedded_icon(low_battery_icon(style)).is_some(),
+                "{}",
+                low_battery_icon(style)
+            );
+            assert_ne!(
+                battery_level_icon(50, MaterialSymbolStyle::Rounded),
+                battery_level_icon(50, MaterialSymbolStyle::Sharp)
+            );
+        }
+    }
+
+    #[test]
+    fn radius_zero_is_sharp_and_every_other_radius_is_rounded() {
+        assert_eq!(
+            MaterialSymbolStyle::from_radius(0.0),
+            MaterialSymbolStyle::Sharp
+        );
+        for radius in [0.5, 6.0, 12.0, DEFAULT_THEME_RADIUS] {
+            assert_eq!(
+                MaterialSymbolStyle::from_radius(radius),
+                MaterialSymbolStyle::Rounded,
+                "{radius}"
+            );
+        }
+        assert_eq!(
+            MaterialSymbolStyle::from_ui_radius(Some(0), DEFAULT_THEME_RADIUS),
+            MaterialSymbolStyle::Sharp
+        );
+        assert_eq!(
+            MaterialSymbolStyle::from_ui_radius(Some(6), 0.0),
+            MaterialSymbolStyle::Rounded
+        );
+        assert_eq!(
+            MaterialSymbolStyle::from_ui_radius(Some(12), 0.0),
+            MaterialSymbolStyle::Rounded
+        );
+        // None keeps the theme's own radius, even when that radius is square.
+        assert_eq!(
+            MaterialSymbolStyle::from_ui_radius(None, 0.0),
+            MaterialSymbolStyle::Sharp
+        );
+        assert_eq!(
+            MaterialSymbolStyle::from_ui_radius(None, DEFAULT_THEME_RADIUS),
+            MaterialSymbolStyle::Rounded
+        );
     }
 
     #[test]

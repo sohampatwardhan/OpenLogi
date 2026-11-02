@@ -1040,6 +1040,7 @@ async fn battery_broadcast_refresh(
         .expect("valid battery replay"),
     );
     let (notifier, mut events, observed) = observed_event_channel();
+    let mut batteries = events.take_batteries().expect("battery readings");
     let mut enumerator = Enumerator::with_backend(backend.clone()).with_event_notifier(notifier);
     enumerator.timeouts.arrival_drain = Duration::ZERO;
     let (online, before) = battery_node_reading(&mut enumerator, PRODUCT_ID).await;
@@ -1058,12 +1059,40 @@ async fn battery_broadcast_refresh(
         .await
         .expect("the broadcast must be recognised as a reconciliation request");
     assert_eq!(events.try_recv(), Ok(source));
+    // The broadcast's own reading reaches the agent before any
+    // reconciliation, and agrees with the one the reconciliation takes.
+    let immediate = batteries
+        .try_recv()
+        .expect("the broadcast is a battery reading at once");
+    assert_eq!(
+        (
+            immediate.product_id,
+            immediate.device_index,
+            immediate.battery.status
+        ),
+        (PRODUCT_ID, 0xff, source_status(broadcast, source))
+    );
 
     let (_, after) = battery_node_reading(&mut enumerator, PRODUCT_ID).await;
+    assert_eq!(after.as_ref(), Some(&immediate.battery));
     backend
         .require_complete()
         .expect("every scripted battery exchange consumed");
     (before, after)
+}
+
+/// The charging status a `0x1000` or `0x1001` broadcast payload carries, as
+/// the scripted payloads above encode it.
+fn source_status(broadcast: [u8; 3], source: HidppEventSource) -> BatteryStatus {
+    let charging = match source {
+        HidppEventSource::BatteryStatus => broadcast[2] != 0,
+        _ => broadcast[2] & 0x80 != 0,
+    };
+    if charging {
+        BatteryStatus::Charging
+    } else {
+        BatteryStatus::Discharging
+    }
 }
 
 /// The `(percentage, status)` of a reading, for the assertions below. These

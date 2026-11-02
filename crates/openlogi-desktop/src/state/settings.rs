@@ -6,8 +6,9 @@ use super::{AppState, StateEvent};
 use crate::platform::app_icon::AppIconExt as _;
 use gpui_component::ThemeMode;
 use openlogi_core::config::{
-    AppIcon, AppSettings, Appearance, AssetSourcePreference, DeviceViewMode, MomentumScrolling,
-    MouseProfileTarget, ThumbwheelSensitivity, UiScale, VerticalScrollSensitivity,
+    AppIcon, AppSettings, Appearance, AssetSourcePreference, DeviceViewMode, LowBatteryThreshold,
+    MomentumScrolling, MouseProfileTarget, ThumbwheelSensitivity, UiScale,
+    VerticalScrollSensitivity,
 };
 use openlogi_core::update_feed::UpdateChannel;
 
@@ -387,6 +388,21 @@ impl AppState {
         events
     }
 
+    /// Set the charge at or below which a discharging battery needs
+    /// attention, and persist it. The agent re-reads the batteries it
+    /// already has, so a device that is now under the threshold is announced
+    /// without waiting for the next poll. An already-set value writes
+    /// nothing and is still reported; disk failures restore the persisted
+    /// value.
+    pub fn commit_low_battery_threshold(&mut self, threshold: LowBatteryThreshold) -> StateEvents {
+        if self.config.app_settings.low_battery_threshold == threshold {
+            return StateEvent::SettingsChanged.into();
+        }
+        self.config
+            .edit(|config| config.app_settings.low_battery_threshold = threshold);
+        self.persist_and_reload("low-battery threshold");
+        StateEvent::SettingsChanged.into()
+    }
     /// Toggle the overlay's low-battery notices and persist it. The agent
     /// decides when a battery is low, so it reads the new value on config
     /// reload; while off it posts no notice. An already-set value writes
@@ -399,6 +415,20 @@ impl AppState {
         self.config
             .edit(|config| config.app_settings.low_battery_notifications = enabled);
         self.persist_and_reload("low-battery notifications setting");
+        StateEvent::SettingsChanged.into()
+    }
+    /// Toggle the overlay's charging indicator and persist it. The agent
+    /// decides which transitions to show, so it reads the new value on
+    /// config reload; while off it shows nothing. An already-set value
+    /// writes nothing and is still reported; disk failures restore the
+    /// persisted value.
+    pub fn commit_charging_notifications(&mut self, enabled: bool) -> StateEvents {
+        if self.config.app_settings.charging_notifications == enabled {
+            return StateEvent::SettingsChanged.into();
+        }
+        self.config
+            .edit(|config| config.app_settings.charging_notifications = enabled);
+        self.persist_and_reload("charging notifications setting");
         StateEvent::SettingsChanged.into()
     }
     /// Toggle the overlay's lock-key indicator and persist it. The agent

@@ -14,6 +14,7 @@ pub mod action_ring;
 mod backlight_effect;
 pub mod backlight_overlay;
 pub mod capture_plan;
+pub mod charging;
 mod dpi;
 pub mod event_monitor;
 pub mod flow;

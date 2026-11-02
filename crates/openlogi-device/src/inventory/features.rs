@@ -9,7 +9,7 @@ use hidpp::{
         CreatableFeature,
         adc_measurement::{AdcMeasurement, AdcMeasurementFeature},
         battery_status::BatteryStatusFeature,
-        battery_voltage::BatteryVoltageFeature,
+        battery_voltage::{BatteryVoltageFeature, VoltageBatteryInfo},
         device_information::{DeviceInformationFeature, DeviceTransport},
         device_type_and_name::DeviceTypeAndNameFeature,
         disable_keys::DisableKeysFeature,
@@ -17,7 +17,7 @@ use hidpp::{
         gestures2::Gestures2Feature,
         multi_platform::{MultiPlatformCapabilities, MultiPlatformFeature},
         reprog_controls::{ReprogControlsFeature, control_ids},
-        unified_battery::UnifiedBatteryFeature,
+        unified_battery::{BatteryInfo as UnifiedBatteryInfo, UnifiedBatteryFeature},
     },
     protocol::{
         v10::Hidpp10Error,
@@ -219,11 +219,7 @@ pub(super) async fn read_battery(
                 .get_battery_info()
                 .await
                 .ok()
-                .map(|info| BatteryInfo {
-                    percentage: state_of_charge.then_some(info.charging_percentage),
-                    level: map_battery_level(info.level),
-                    status: map_battery_status(info.status),
-                })
+                .map(|info| unified_reading(info, state_of_charge))
         }
         BatteryProbe::Legacy { index, mileage } => {
             let feature = BatteryStatusFeature::new(Arc::clone(channel), slot, index);
@@ -235,20 +231,7 @@ pub(super) async fn read_battery(
         }
         BatteryProbe::Voltage(feature_index) => {
             let feature = BatteryVoltageFeature::new(Arc::clone(channel), slot, feature_index);
-            feature.get_battery_info().await.ok().map(|info| {
-                let percentage = voltage_battery_percentage(info.voltage_mv);
-                BatteryInfo {
-                    percentage: Some(percentage),
-                    // The firmware's own critical marker outranks our
-                    // estimated bucket.
-                    level: if info.critical {
-                        BatteryLevel::Critical
-                    } else {
-                        legacy_battery_level_from_percentage(percentage)
-                    },
-                    status: map_voltage_battery_status(info.status),
-                }
-            })
+            feature.get_battery_info().await.ok().map(voltage_reading)
         }
         BatteryProbe::Adc(feature_index) => {
             let feature = AdcMeasurementFeature::new(Arc::clone(channel), slot, feature_index);
@@ -276,6 +259,31 @@ pub(super) async fn read_battery(
             .map(charge_register_battery_info),
     };
     reading.map_or(BatteryRead::Unavailable, BatteryRead::Reading)
+}
+
+/// A `0x1004` status, from a reply or a broadcast, as an inventory reading.
+/// `state_of_charge` is the device's capability to report a percentage.
+pub(super) fn unified_reading(info: UnifiedBatteryInfo, state_of_charge: bool) -> BatteryInfo {
+    BatteryInfo {
+        percentage: state_of_charge.then_some(info.charging_percentage),
+        level: map_battery_level(info.level),
+        status: map_battery_status(info.status),
+    }
+}
+
+/// A `0x1001` status, from a reply or a broadcast, as an inventory reading.
+pub(super) fn voltage_reading(info: VoltageBatteryInfo) -> BatteryInfo {
+    let percentage = voltage_battery_percentage(info.voltage_mv);
+    BatteryInfo {
+        percentage: Some(percentage),
+        // The firmware's own critical marker outranks our estimated bucket.
+        level: if info.critical {
+            BatteryLevel::Critical
+        } else {
+            legacy_battery_level_from_percentage(percentage)
+        },
+        status: map_voltage_battery_status(info.status),
+    }
 }
 
 /// Locate a device's battery feature in an enumerated feature-ID table,

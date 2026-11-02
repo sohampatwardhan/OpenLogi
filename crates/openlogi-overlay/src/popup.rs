@@ -1,8 +1,8 @@
 //! Open a transient indicator card.
 //!
-//! The backlight level and the lock-key indicator use [`open`], which follows
-//! [`Edge::platform_default`]: the top of the usable area on macOS, the bottom
-//! on Windows and Linux. Cards
+//! The backlight level, the lock-key indicator, and the charging and
+//! connection indicators use [`open`], which follows [`Edge::platform_default`]:
+//! the top of the usable area on macOS, the bottom on Windows and Linux. Cards
 //! up at the same time stack away from that edge instead of opening on top of
 //! each other. The backlight effect list is the exception. It stays centred
 //! on every OS, so it calls [`open_centred_clear_of`], which opens at

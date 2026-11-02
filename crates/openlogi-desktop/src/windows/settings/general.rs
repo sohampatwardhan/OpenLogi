@@ -10,7 +10,7 @@ use crate::ui::slider_row::SliderRow;
 use crate::ui::theme::Typography as _;
 use gpui_base::Button as BaseButton;
 use gpui_component::radio::{Radio, RadioGroup};
-use openlogi_core::config::MouseProfileTarget;
+use openlogi_core::config::{LowBatteryThreshold, MouseProfileTarget};
 
 use crate::features::pointer::momentum::MomentumPanel;
 use crate::platform::registration::ServiceStatus;
@@ -24,6 +24,7 @@ pub(super) struct SensitivitySliders {
 
 pub(super) fn general_page(
     sliders: SensitivitySliders,
+    low_battery: Entity<SliderState>,
     momentum: Entity<MomentumPanel>,
     registration_status: ServiceStatus,
 ) -> SettingPage {
@@ -93,7 +94,15 @@ pub(super) fn general_page(
 
     let group = group
         .item(low_battery_notifications_item())
-        .item(lock_key_notifications_item());
+        .item(sensitivity_item(
+            tr!("app.low_battery_threshold"),
+            tr!("app.low_battery_threshold_description"),
+            low_battery,
+            LowBatteryThreshold::MAX,
+            LowBatteryThreshold::DEFAULT,
+        ))
+        .item(lock_key_notifications_item())
+        .item(charging_notifications_item());
 
     // Momentum scrolling's app-wide default. A mouse can set its own on its
     // Pointer tab; the card counts those.
@@ -184,6 +193,20 @@ fn low_battery_notifications_item() -> SettingItem {
         ),
     )
     .description(tr!("app.low_battery_notifications_description"))
+}
+
+/// The switch for the overlay's charging indicator.
+fn charging_notifications_item() -> SettingItem {
+    SettingItem::new(
+        tr!("app.charging_notifications"),
+        SettingField::switch(
+            |cx| AppState::try_read(cx).is_some_and(|s| s.app_settings().charging_notifications),
+            |enabled, cx| {
+                AppState::apply(cx, |state| state.commit_charging_notifications(enabled));
+            },
+        ),
+    )
+    .description(tr!("app.charging_notifications_description"))
 }
 
 /// The switch for the overlay's lock-key indicator.

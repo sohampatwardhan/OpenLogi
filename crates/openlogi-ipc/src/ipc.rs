@@ -16,7 +16,8 @@ use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::{ActionRingIcon, ActionRingSlot};
 use openlogi_core::config::{ConfigRevision, FlowPeerName, FlowPublicKey, Lighting};
 use openlogi_core::device::{
-    BatteryInfo, ChangedOnLight, DeviceInventory, DeviceKind, LightState, LockKey, StandaloneDevice,
+    BatteryInfo, BatteryLevel, ChangedOnLight, DeviceInventory, DeviceKind, LightState, LockKey,
+    StandaloneDevice,
 };
 use openlogi_core::hid::{
     BacklightChange, BacklightEffect, BacklightState, DeviceRoute, DisableKeysMask,
@@ -187,6 +188,9 @@ pub use succession::Identity;
 ///      the overlay uses for Material Symbol icons. `0` is sharp.
 ///      [`BacklightObservation::language`] appended — the configured UI
 ///      locale, now that the brightness card draws translated text.
+///      `Agent::observe_charging`, [`ChargingObservation`], [`ChargingPopup`]
+///      and [`ChargingEvent`] appended — a device's charging phase changed,
+///      for the overlay's transient indicator.
 pub const PROTOCOL_VERSION: u32 = 44;
 
 /// Environment variable through which the agent hands a supervised helper the
@@ -758,6 +762,52 @@ pub struct LockKeyChange {
     pub engaged: bool,
 }
 
+/// Which way a device's charging phase moved.
+///
+/// Variants are append-only because this enum crosses bincode IPC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChargingEvent {
+    /// The device started charging, including charging slowly.
+    Started,
+    /// The device left external power and is discharging.
+    Stopped,
+    /// Charge completed while the device is still on power.
+    Full,
+}
+
+/// One charging popup: the device, which way its phase moved, and the
+/// reading at that moment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChargingPopup {
+    /// The user's name for the device, else the name it reports. `None`
+    /// when it has neither; the overlay names it by [`Self::kind`].
+    pub name: Option<String>,
+    /// The device's kind, for that fallback name.
+    pub kind: DeviceKind,
+    /// The phase it changed to.
+    pub event: ChargingEvent,
+    /// Reported charge, when the reading has one.
+    pub percentage: Option<u8>,
+    /// Coarse level, for a device that reports no percentage.
+    pub level: BatteryLevel,
+}
+
+/// The transient charging indicator: the popup the agent is showing, or
+/// none once its time is up.
+///
+/// Its own cell, as [`LockKeyObservation`] is. The agent owns how long the
+/// indicator shows, and which transitions count.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChargingObservation {
+    /// See [`Generation`]. Pass it back to the next [`Agent::observe_charging`].
+    pub generation: Generation,
+    /// The popup to show, or `None` once it has ended.
+    pub shown: Option<ChargingPopup>,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale.
+    pub language: Option<String>,
+}
+
 /// What a notice tells the user.
 ///
 /// Variants are append-only because this enum crosses bincode IPC.
@@ -1112,4 +1162,13 @@ pub trait Agent {
     /// `since`, or with the unchanged radius after [`OBSERVE_HOLD`]. Pass `0`
     /// to read the current radius at once.
     async fn observe_ui_chrome(since: Generation) -> UiChromeObservation;
+
+    /// Long-poll the charging indicator. Answers as soon as it differs from
+    /// generation `since`, or with the unchanged indicator after
+    /// [`OBSERVE_HOLD`]. Pass `0` to read the current indicator at once.
+    ///
+    /// Appended after [`Self::observe_ui_chrome`]. A device's first charging
+    /// phase, and a reading that repeats the phase it last reported, are not
+    /// changes.
+    async fn observe_charging(since: Generation) -> ChargingObservation;
 }

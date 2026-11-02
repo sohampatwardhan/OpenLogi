@@ -13,12 +13,12 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use gpui::{
-    AppContext as _, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Render, SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
-    WindowBackgroundAppearance, WindowKind, WindowOptions, div, px, size, svg,
+    AppContext as _, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    Size, StatefulInteractiveElement as _, Styled, Window, WindowBackgroundAppearance, WindowKind,
+    WindowOptions, div, px, size,
 };
 use openlogi_ipc::{Notice, NoticeKind};
-use openlogi_ui::action_icons::LOW_BATTERY_ICON;
+use openlogi_ui::action_icons::{MaterialSymbolStyle, low_battery_icon};
 use tracing::warn;
 
 use crate::edge::{self, Edge};
@@ -27,8 +27,9 @@ use crate::platform::NoticePlacement;
 /// The most cards shown at once. Older ones wait out their time unseen rather
 /// than grow the stack across the screen.
 pub(crate) const MAX_CARDS: usize = 3;
-pub(crate) const CARD_WIDTH: f32 = 320.0;
-pub(crate) const CARD_HEIGHT: f32 = 64.0;
+/// The battery card's size, shared with the charging popup.
+pub(crate) const CARD_WIDTH: f32 = crate::osd::CHARGING_WIDTH;
+pub(crate) const CARD_HEIGHT: f32 = crate::osd::CHARGING_HEIGHT;
 pub(crate) const CARD_GAP: f32 = 8.0;
 /// Clear space around the stack, so the cards' shadow is not cut off at the
 /// window edge.
@@ -37,27 +38,13 @@ pub(crate) const STACK_INSET: f32 = 12.0;
 /// window rule can tell them apart.
 pub(crate) const NOTICE_APP_ID: &str = "openlogi-notice";
 
-/// Card colours. Like the ring, a notice floats over whatever is on screen, so
-/// it commits to a dark card instead of following the OS appearance.
-const CARD: Hsla = neutral(0.10, 0.94);
-const TITLE: Hsla = neutral(0.98, 1.0);
-const DETAIL: Hsla = neutral(0.78, 1.0);
-/// The battery glyph: amber, the colour of a warning that needs no action yet.
+/// The battery glyph and bar fill: amber, the colour of a warning that needs no action yet.
 const WARNING: Hsla = Hsla {
     h: 38.0 / 360.0,
     s: 0.92,
     l: 0.56,
     a: 1.0,
 };
-
-const fn neutral(lightness: f32, alpha: f32) -> Hsla {
-    Hsla {
-        h: 0.0,
-        s: 0.0,
-        l: lightness,
-        a: alpha,
-    }
-}
 
 /// What the overlay remembers between the agent's lists: the latest list,
 /// which cards the user dismissed, and which cards are on screen.
@@ -141,12 +128,9 @@ pub(crate) fn card_window_options(app_id: &str) -> WindowOptions {
     }
 }
 
-/// The two lines of a card: what happened, and to which device.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct NoticeText {
-    pub(crate) title: SharedString,
-    pub(crate) detail: SharedString,
-}
+/// The words on a low-battery card: the device and "Low battery" on top,
+/// the charge at the end of the bar.
+pub(crate) type NoticeText = crate::charging::BatteryCopy;
 
 /// The text of one notice, in the active locale.
 pub(crate) fn notice_text(kind: &NoticeKind) -> NoticeText {
@@ -159,13 +143,9 @@ pub(crate) fn notice_text(kind: &NoticeKind) -> NoticeText {
             let device = name
                 .clone()
                 .unwrap_or_else(|| rust_i18n::t!(kind.translation_key()).into_owned());
-            let detail = match battery.percentage {
-                Some(percentage) => format!("{device} · {percentage}%"),
-                None => device,
-            };
             NoticeText {
-                title: rust_i18n::t!("device.low_battery").into_owned().into(),
-                detail: detail.into(),
+                headline: crate::charging::headline(&device, &rust_i18n::t!("device.low_battery")),
+                charge: crate::charging::charge_label(battery.percentage, battery.level),
             }
         }
     }
@@ -229,6 +209,23 @@ fn close_notice_windows(cx: &mut gpui::App) {
     }
 }
 
+/// The low-battery card, shared by the notice window and the preview board.
+///
+/// The same two rows as the charging popup, in the warning amber.
+pub(crate) fn notice_card(notice: &Notice, style: MaterialSymbolStyle) -> gpui::Div {
+    let fraction = match &notice.kind {
+        NoticeKind::LowBattery { battery, .. } => {
+            crate::charging::charge_fraction(battery.percentage)
+        }
+    };
+    crate::charging::battery_card(crate::charging::BatteryCard {
+        icon: low_battery_icon(style),
+        colour: WARNING,
+        copy: notice_text(&notice.kind),
+        fraction,
+    })
+}
+
 /// The notice window's view: the stacked cards, newest against the platform edge.
 pub(crate) struct NoticeView {
     cards: Vec<Notice>,
@@ -236,44 +233,13 @@ pub(crate) struct NoticeView {
 }
 
 impl NoticeView {
-    fn card(&self, notice: &Notice) -> impl IntoElement + use<> {
-        let NoticeText { title, detail } = notice_text(&notice.kind);
+    fn card(&self, notice: &Notice, style: MaterialSymbolStyle) -> impl IntoElement + use<> {
         let id = notice.id;
         let notice_shelf = Rc::clone(&self.shelf);
-        div()
+        notice_card(notice, style)
             .id(("notice", id))
-            .w(px(CARD_WIDTH))
-            .h(px(CARD_HEIGHT))
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(12.0))
-            .px(px(16.0))
-            .rounded(px(14.0))
-            .bg(CARD)
-            .shadow_lg()
             .cursor_pointer()
-            .child(
-                svg()
-                    .path(LOW_BATTERY_ICON)
-                    .size(px(24.0))
-                    .flex_none()
-                    .text_color(WARNING),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(TITLE)
-                            .child(title),
-                    )
-                    .child(div().text_xs().text_color(DETAIL).truncate().child(detail)),
-            )
+            .shadow_lg()
             .on_click(move |_, window, cx| {
                 // This window is checked out of the app while its handler
                 // runs, so close it here and redraw what is left afterwards.
@@ -288,7 +254,8 @@ impl NoticeView {
 }
 
 impl Render for NoticeView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let style = crate::icons::style(cx);
         // Shown in place on the platform edge. There is no entrance animation;
         // the newest card is the one against that edge.
         let edge = Edge::platform_default();
@@ -305,7 +272,7 @@ impl Render for NoticeView {
         } else {
             stack.justify_end()
         };
-        stack.children(cards.into_iter().map(|notice| self.card(notice)))
+        stack.children(cards.into_iter().map(|notice| self.card(notice, style)))
     }
 }
 

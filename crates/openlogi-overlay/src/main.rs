@@ -18,14 +18,16 @@ rust_i18n::i18n!("../openlogi-ui/locales", fallback = "en");
 
 mod backlight;
 mod backlight_effect;
-mod chrome;
+mod charging;
 mod edge;
+mod icons;
 mod ipc;
 mod lock_key;
 mod notice;
 mod osd;
 mod platform;
 mod popup;
+mod preview;
 mod ring;
 mod session;
 
@@ -55,6 +57,11 @@ use crate::session::{
 fn main() -> Result<()> {
     openlogi_core::logging::init_stderr();
 
+    if let Ok(mode) = std::env::var("OPENLOGI_OSD_PREVIEW") {
+        preview::run(&mode);
+        return Ok(());
+    }
+
     openlogi_core::locale::activate(None);
     // Held for the whole run: dropping it hands the role to the replacement.
     let _tenancy = claim_the_role()?;
@@ -65,6 +72,7 @@ fn main() -> Result<()> {
         mut lock_keys,
         mut backlight_effects,
         mut ui_chrome,
+        mut charging,
         commands,
     } = ipc::spawn();
 
@@ -85,7 +93,6 @@ fn main() -> Result<()> {
         // Reapply the helper policy after that reset, without constructing
         // NSApplication before GPUI has installed its subclass.
         platform::configure_application();
-        chrome::apply(cx, openlogi_ui::material::DEFAULT_THEME_RADIUS_PX);
         let live_session = Arc::new(ClickAwaySession::new());
         spawn_click_away_dismissal(cx, Arc::clone(&live_session));
         let shelf = Rc::new(RefCell::new(NoticeShelf::default()));
@@ -96,6 +103,15 @@ fn main() -> Result<()> {
                     continue;
                 };
                 cx.update(|cx| notice::present(cx, &shelf, &cards));
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            // The agent's timer is the indicator's only clock: it reports
+            // nothing showing when the time is up, or when it is gone.
+            while let Some(observed) = charging.recv().await {
+                openlogi_core::locale::activate(observed.language.as_deref());
+                cx.update(|cx| charging::present(cx, observed.shown));
             }
         })
         .detach();
@@ -215,7 +231,7 @@ fn main() -> Result<()> {
         .detach();
         cx.spawn(async move |cx| {
             while let Some(observation) = ui_chrome.recv().await {
-                cx.update(|cx| chrome::apply(cx, observation.radius_px));
+                cx.update(|cx| icons::apply_radius(cx, observation.radius_px));
             }
         })
         .detach();
