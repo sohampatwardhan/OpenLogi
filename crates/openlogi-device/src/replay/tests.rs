@@ -268,6 +268,7 @@ fn profile_validator_rejects_route_and_setting_inconsistencies() {
         power_save: false,
         duration: None,
         controls: BacklightControls::default(),
+        effect: crate::BacklightEffect::Static,
     });
     let error = invalid_backlight
         .validate()

@@ -18,8 +18,8 @@ use openlogi_core::action_ring::DISPLAY_LIFETIME;
 use openlogi_core::binding::ActionRingSlot;
 use openlogi_ipc::client::{self, ConnectError, Observer, Stamped};
 use openlogi_ipc::{
-    ActionRingInvocation, AgentClient, BacklightObservation, ClientKind, LockKeyObservation,
-    NoticeObservation, RingObservation,
+    ActionRingInvocation, AgentClient, BacklightEffectObservation, BacklightObservation,
+    ClientKind, LockKeyObservation, NoticeObservation, RingObservation, UiChromeObservation,
 };
 use succession::Standing;
 use tarpc::context;
@@ -63,6 +63,11 @@ pub(crate) struct Handle {
     /// The lock-key change the agent says should be showing, each time that
     /// changes. `None` is no indicator, which is also how one ends.
     pub(crate) lock_keys: mpsc::UnboundedReceiver<LockKeyObservation>,
+    /// The backlight effect the agent says should be named, each time that
+    /// changes. `None` is no indicator, which is also how one ends.
+    pub(crate) backlight_effects: mpsc::UnboundedReceiver<BacklightEffectObservation>,
+    /// The corner radius for Material Symbol icons.
+    pub(crate) ui_chrome: mpsc::UnboundedReceiver<UiChromeObservation>,
     /// Where the view reports hover, activation, and cancellation.
     pub(crate) commands: mpsc::UnboundedSender<OverlayCommand>,
 }
@@ -74,6 +79,8 @@ pub(crate) fn spawn() -> Handle {
     let (backlight_tx, backlights) = mpsc::unbounded_channel();
     let (notice_tx, notices) = mpsc::unbounded_channel();
     let (lock_key_tx, lock_keys) = mpsc::unbounded_channel();
+    let (effect_tx, backlight_effects) = mpsc::unbounded_channel();
+    let (chrome_tx, ui_chrome) = mpsc::unbounded_channel();
     let (commands, mut command_rx) = mpsc::unbounded_channel();
     let started = openlogi_core::worker::spawn("openlogi-overlay-ipc", move |runtime| {
         runtime.block_on(async {
@@ -90,6 +97,12 @@ pub(crate) fn spawn() -> Handle {
                 observe(connect, LOCK_KEYS, |observed| lock_key_tx
                     .send(observed)
                     .is_ok()),
+                observe(connect, BACKLIGHT_EFFECT, |observed| effect_tx
+                    .send(observed)
+                    .is_ok()),
+                observe(connect, UI_CHROME, |observed| chrome_tx
+                    .send(observed)
+                    .is_ok()),
                 send_commands(&mut command_rx)
             );
         });
@@ -102,6 +115,8 @@ pub(crate) fn spawn() -> Handle {
         backlights,
         notices,
         lock_keys,
+        backlight_effects,
+        ui_chrome,
         commands,
     }
 }
@@ -148,6 +163,21 @@ const LOCK_KEYS: Cell<LockKeyObservation> = Cell {
     lost: Some(no_lock_key),
 };
 
+/// The backlight-effect indicator, which the agent hides when its time is up.
+const BACKLIGHT_EFFECT: Cell<BacklightEffectObservation> = Cell {
+    open: Observer::backlight_effect,
+    what: "backlight effect",
+    lost: Some(no_backlight_effect),
+};
+
+/// The corner radius. Losing the agent keeps the last radius: an icon style
+/// is not something to clear.
+const UI_CHROME: Cell<UiChromeObservation> = Cell {
+    open: Observer::ui_chrome,
+    what: "ui chrome",
+    lost: None,
+};
+
 /// The observation that closes the indicator when the agent that was driving
 /// it is gone. The generation is meaningless to the window, which only reads
 /// `visible`.
@@ -157,6 +187,8 @@ const fn backlight_lost() -> BacklightObservation {
         current_level: 0,
         levels: 0,
         visible: false,
+        off_hint: false,
+        language: None,
     }
 }
 
@@ -177,6 +209,17 @@ const fn no_lock_key() -> LockKeyObservation {
         generation: 0,
         shown: None,
         language: None,
+    }
+}
+
+/// The observation that closes the effect indicator of an agent that is gone.
+/// The window reads only `shown`.
+fn no_backlight_effect() -> BacklightEffectObservation {
+    BacklightEffectObservation {
+        generation: 0,
+        shown: None,
+        language: None,
+        supported: Vec::new(),
     }
 }
 

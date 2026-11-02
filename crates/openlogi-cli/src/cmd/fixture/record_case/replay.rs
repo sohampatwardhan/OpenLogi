@@ -622,6 +622,7 @@ mod tests {
                 power_save: true,
                 controls: BacklightControls::POWER_SAVE,
                 duration: None,
+                effect: openlogi_core::hid::BacklightEffect::Static,
             }))
         );
         backend

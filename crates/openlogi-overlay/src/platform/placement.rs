@@ -5,7 +5,7 @@ use gpui::{
 };
 use tracing::warn;
 
-use crate::edge::{EDGE_MARGIN, Edge, origin_px};
+use crate::edge::{EDGE_MARGIN, Edge, centre_clear_of_px, origin_px};
 use crate::notice::{NOTICE_APP_ID, card_window_options};
 use crate::ring::{Placement, WINDOW_SIZE, clamp_window_origin, ring_window_options};
 
@@ -102,6 +102,7 @@ impl NoticePlacement {
                 monitor,
                 edge,
                 EDGE_MARGIN,
+                None,
             )]
         };
         Ok(Self { attempts })
@@ -209,6 +210,7 @@ fn positioned_card(
     monitor: super::PopupMonitor,
     edge: Edge,
     margin: f32,
+    keep_clear: Option<Size<Pixels>>,
 ) -> WindowOptions {
     let screen = match monitor {
         super::PopupMonitor::Cursor => cursor_screen(cx),
@@ -219,7 +221,13 @@ fn positioned_card(
     } else {
         screen.usable.or(screen.bounds)
     };
-    let origin = area.map_or_else(Point::default, |area| origin_px(edge, area, size, margin));
+    let origin = match (edge, area, keep_clear) {
+        (Edge::Centre, Some(display), Some(edge_card)) => {
+            let usable = screen.usable.unwrap_or(display);
+            centre_clear_of_px(display, usable, size, edge_card)
+        }
+        _ => area.map_or_else(Point::default, |area| origin_px(edge, area, size, margin)),
+    };
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(origin, size))),
         display_id: screen.display_id,
@@ -243,16 +251,26 @@ fn primary_screen(cx: &gpui::App) -> CursorScreen {
 /// Windows to try for a card on `edge`, best first.
 ///
 /// [`Edge::Centre`] is one ordinary window in the middle of the primary
-/// display. The platform edges try a layer-shell surface on Wayland first,
-/// `margin` from the edge.
+/// display, moved clear of a `keep_clear` sized card on
+/// [`Edge::platform_default`] when it would cover one. The platform edges try
+/// a layer-shell surface on Wayland first, `margin` from the edge.
 pub(crate) fn card_attempts(
     cx: &gpui::App,
     app_id: &str,
     size: Size<Pixels>,
     edge: Edge,
     margin: f32,
+    keep_clear: Option<Size<Pixels>>,
 ) -> Vec<WindowOptions> {
-    let plain = positioned_card(cx, size, app_id, super::PopupMonitor::Primary, edge, margin);
+    let plain = positioned_card(
+        cx,
+        size,
+        app_id,
+        super::PopupMonitor::Primary,
+        edge,
+        margin,
+        keep_clear,
+    );
     if edge.in_full_display() || !on_wayland() {
         vec![plain]
     } else {

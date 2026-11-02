@@ -1,38 +1,30 @@
 //! Compact transient lock-key indicator: "Caps Lock On" and the like, shown
 //! when a keyboard reports one of its lock keys turning on or off.
 //!
+//! Caps Lock, Num Lock, and Scroll Lock share the Caps Lock badge: filled
+//! while the key is on, outlined while it is off. Material Symbols has no
+//! num-lock or scroll-lock glyph, and the label still names the key.
+//!
 //! The agent decides what shows and for how long
 //! ([`openlogi_ipc::LockKeyObservation`]); this module only draws it. The window
 //! opens with the first change, shows each later change in place, and closes
 //! when the agent reports nothing showing.
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Context, FontWeight, Hsla, IntoElement, ParentElement,
-    Render, Styled, Window, WindowHandle, div, px, size, svg,
+    AnyWindowHandle, App, AppContext as _, Context, Hsla, IntoElement, ParentElement, Render,
+    Styled, Window, WindowHandle, div, px, size, svg,
 };
 use openlogi_core::device::LockKey;
 use openlogi_ipc::LockKeyChange;
-use openlogi_ui::action_icons::LOCK_KEY_ICON;
+use openlogi_ui::action_icons::lock_key_icon;
 use tracing::warn;
+
+use crate::chrome;
+use crate::osd;
 
 /// Wide enough for the longest translated title on one line.
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 72.0;
-
-/// The glyph of a key that is now on: the backlight indicator's accent.
-const ENGAGED: Hsla = Hsla {
-    h: 0.58,
-    s: 0.75,
-    l: 0.62,
-    a: 1.0,
-};
-/// The glyph of a key that is now off.
-const RELEASED: Hsla = Hsla {
-    h: 0.0,
-    s: 0.0,
-    l: 0.60,
-    a: 1.0,
-};
 
 /// The catalog key for the text that announces `change`.
 pub(crate) const fn title_key(change: LockKeyChange) -> &'static str {
@@ -47,8 +39,8 @@ pub(crate) const fn title_key(change: LockKeyChange) -> &'static str {
 }
 
 /// The colour of the glyph for a key that is now `engaged` or not.
-const fn glyph_colour(engaged: bool) -> Hsla {
-    if engaged { ENGAGED } else { RELEASED }
+fn glyph_colour(engaged: bool) -> Hsla {
+    if engaged { osd::accent() } else { osd::MUTED }
 }
 
 /// The indicator window's view: the latest change the agent is showing.
@@ -57,22 +49,22 @@ pub(crate) struct LockKeyView {
 }
 
 impl Render for LockKeyView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_row()
             .items_center()
             .justify_center()
-            .gap(px(12.0))
+            .gap(px(osd::GAP))
             .w(px(WIDTH))
             .h(px(HEIGHT))
-            .px(px(20.0))
-            .rounded(px(12.0))
-            .bg(gpui::hsla(0.0, 0.0, 0.08, 0.94))
-            .text_color(gpui::hsla(0.0, 0.0, 0.96, 1.0))
+            .px(px(osd::PAD))
+            .rounded(px(osd::RADIUS))
+            .bg(osd::PANEL)
+            .text_color(osd::TEXT)
             .child(
                 svg()
-                    .path(LOCK_KEY_ICON)
+                    .path(lock_key_icon(self.change.engaged, chrome::corner(cx)))
                     .size(px(24.0))
                     .flex_none()
                     .text_color(glyph_colour(self.change.engaged)),
@@ -81,7 +73,7 @@ impl Render for LockKeyView {
                 div()
                     .min_w_0()
                     .truncate()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(osd::TITLE)
                     .child(rust_i18n::t!(title_key(self.change)).into_owned()),
             )
     }
@@ -167,9 +159,9 @@ mod tests {
 
     #[test]
     fn a_key_turning_on_is_drawn_apart_from_one_turning_off() {
-        assert_eq!(glyph_colour(true), ENGAGED);
-        assert_eq!(glyph_colour(false), RELEASED);
-        assert_ne!(ENGAGED, RELEASED);
+        assert_eq!(glyph_colour(true), osd::accent());
+        assert_eq!(glyph_colour(false), osd::MUTED);
+        assert_ne!(osd::accent(), osd::MUTED);
     }
 
     /// The change each open indicator window shows.

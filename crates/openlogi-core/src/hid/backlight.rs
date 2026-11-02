@@ -53,6 +53,99 @@ pub enum BacklightStatus {
     PermanentManual,
 }
 
+/// A predefined backlight effect from HID++ `0x1982`.
+///
+/// Crosses the agent↔GUI IPC, where serde encodes the variant *index*, so
+/// variant order is wire format — append only, and a new variant needs a
+/// `PROTOCOL_VERSION` bump (guarded by `openlogi-ipc/tests/wire_format.rs`).
+/// [`Self::Static`] is the firmware default. A profile recorded before this
+/// field existed reads back as that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum BacklightEffect {
+    /// The keys hold one steady brightness.
+    #[default]
+    Static,
+    /// No illumination effect.
+    None,
+    /// The brightness swells and fades.
+    Breathing,
+    /// Neighbouring keys take contrasting levels.
+    Contrast,
+    /// Keystrokes light the keys they strike.
+    Reaction,
+    /// The pattern changes on its own.
+    Random,
+    /// A wave travels across the keys.
+    Waves,
+}
+
+impl BacklightEffect {
+    /// Every effect, in wire order.
+    pub const ALL: [Self; 7] = [
+        Self::Static,
+        Self::None,
+        Self::Breathing,
+        Self::Contrast,
+        Self::Reaction,
+        Self::Random,
+        Self::Waves,
+    ];
+
+    /// The order the backlight key walks effects on an MX Mechanical.
+    ///
+    /// Fn+lightbulb steps Static → Contrast → Breathing → Waves → Reaction →
+    /// Random, then wraps. [`Self::None`] is not in the walk: the key does
+    /// not select it. A keyboard's popup lists the effects it supports, in
+    /// this order.
+    pub const CYCLE: [Self; 6] = [
+        Self::Static,
+        Self::Contrast,
+        Self::Breathing,
+        Self::Waves,
+        Self::Reaction,
+        Self::Random,
+    ];
+
+    /// The `getBacklightConfig` effect-list bit for this effect.
+    #[must_use]
+    pub const fn list_bit(self) -> u16 {
+        1 << match self {
+            Self::Static => 0,
+            Self::None => 1,
+            Self::Breathing => 2,
+            Self::Contrast => 3,
+            Self::Reaction => 4,
+            Self::Random => 5,
+            Self::Waves => 6,
+        }
+    }
+
+    /// The effects in `bits` (`getBacklightConfig`'s effect list), in
+    /// [`Self::CYCLE`] order. [`Self::None`] is omitted even when its bit is
+    /// set: the backlight key never selects it.
+    #[must_use]
+    pub fn in_cycle_order(bits: u16) -> Vec<Self> {
+        Self::CYCLE
+            .into_iter()
+            .filter(|effect| bits & effect.list_bit() != 0)
+            .collect()
+    }
+
+    /// The word `openlogi backlight status` prints.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::None => "none",
+            Self::Breathing => "breathing",
+            Self::Contrast => "contrast",
+            Self::Reaction => "reaction",
+            Self::Random => "random",
+            Self::Waves => "waves",
+        }
+    }
+}
+
 /// Snapshot of a keyboard's backlight, merged from the `0x1982`
 /// `getBacklightConfig` and `getBacklightInfo` responses.
 ///
@@ -95,6 +188,13 @@ pub struct BacklightState {
     /// field loading; the IPC encoding always carries it.
     #[serde(default)]
     pub duration: Option<BacklightDuration>,
+    /// The predefined effect the keyboard is running.
+    ///
+    /// `serde(default)` only keeps recorded JSON fixtures that predate the
+    /// field loading; those read [`BacklightEffect::Static`]. The IPC
+    /// encoding always carries it.
+    #[serde(default)]
+    pub effect: BacklightEffect,
 }
 
 bitflags::bitflags! {
@@ -481,7 +581,54 @@ mod tests {
                 | BacklightControls::LEVEL
                 | BacklightControls::POWER_SAVE
                 | BacklightControls::DURATION,
+            effect: BacklightEffect::Static,
         }
+    }
+
+    #[test]
+    fn each_effect_has_its_own_status_word() {
+        let mut seen = Vec::new();
+        for effect in BacklightEffect::ALL {
+            let word = effect.label();
+            assert!(!seen.contains(&word), "{effect:?} repeats {word}");
+            seen.push(word);
+        }
+        assert_eq!(seen.len(), BacklightEffect::ALL.len());
+    }
+
+    #[test]
+    fn the_cycle_is_the_mx_mechanical_walk_without_none() {
+        let all = BacklightEffect::CYCLE
+            .into_iter()
+            .fold(0, |bits, effect| bits | effect.list_bit())
+            | BacklightEffect::None.list_bit();
+        assert_eq!(
+            BacklightEffect::in_cycle_order(all),
+            [
+                BacklightEffect::Static,
+                BacklightEffect::Contrast,
+                BacklightEffect::Breathing,
+                BacklightEffect::Waves,
+                BacklightEffect::Reaction,
+                BacklightEffect::Random,
+            ]
+        );
+        let some = BacklightEffect::Random.list_bit()
+            | BacklightEffect::Static.list_bit()
+            | BacklightEffect::Breathing.list_bit();
+        assert_eq!(
+            BacklightEffect::in_cycle_order(some),
+            [
+                BacklightEffect::Static,
+                BacklightEffect::Breathing,
+                BacklightEffect::Random,
+            ],
+            "supported effects keep their place in the walk"
+        );
+        assert!(
+            BacklightEffect::in_cycle_order(0).is_empty(),
+            "no supported bits is an unknown list, not a guessed effect"
+        );
     }
 
     #[test]

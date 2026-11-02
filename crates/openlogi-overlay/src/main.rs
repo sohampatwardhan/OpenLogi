@@ -17,10 +17,13 @@
 rust_i18n::i18n!("../openlogi-ui/locales", fallback = "en");
 
 mod backlight;
+mod backlight_effect;
+mod chrome;
 mod edge;
 mod ipc;
 mod lock_key;
 mod notice;
+mod osd;
 mod platform;
 mod popup;
 mod ring;
@@ -36,7 +39,6 @@ use tracing::{debug, warn};
 
 use openlogi_core::action_ring::DISPLAY_LIFETIME;
 
-use crate::backlight::BacklightView;
 use crate::ipc::OverlayCommand;
 use crate::notice::NoticeShelf;
 use crate::platform::RingPlacement;
@@ -61,6 +63,8 @@ fn main() -> Result<()> {
         mut backlights,
         mut notices,
         mut lock_keys,
+        mut backlight_effects,
+        mut ui_chrome,
         commands,
     } = ipc::spawn();
 
@@ -81,6 +85,7 @@ fn main() -> Result<()> {
         // Reapply the helper policy after that reset, without constructing
         // NSApplication before GPUI has installed its subclass.
         platform::configure_application();
+        chrome::apply(cx, openlogi_ui::material::DEFAULT_THEME_RADIUS_PX);
         let live_session = Arc::new(ClickAwaySession::new());
         spawn_click_away_dismissal(cx, Arc::clone(&live_session));
         let shelf = Rc::new(RefCell::new(NoticeShelf::default()));
@@ -100,6 +105,15 @@ fn main() -> Result<()> {
             while let Some(observed) = lock_keys.recv().await {
                 openlogi_core::locale::activate(observed.language.as_deref());
                 cx.update(|cx| lock_key::present(cx, observed.shown));
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            while let Some(observed) = backlight_effects.recv().await {
+                openlogi_core::locale::activate(observed.language.as_deref());
+                let shown = observed.shown;
+                let supported = observed.supported;
+                cx.update(|cx| backlight_effect::present(cx, shown, &supported));
             }
         })
         .detach();
@@ -190,34 +204,18 @@ fn main() -> Result<()> {
                 debug!(
                     level = observation.current_level,
                     visible = observation.visible,
+                    off_hint = observation.off_hint,
                     "backlight observation received"
                 );
-                cx.update(|cx| {
-                    for handle in cx.windows() {
-                        if let Some(view) = handle.downcast::<BacklightView>() {
-                            let _ = view.update(cx, |view, _, cx| {
-                                view.observation = observation.clone();
-                                cx.notify();
-                            });
-                        }
-                    }
-                    if !observation.visible {
-                        for handle in cx.windows() {
-                            if handle.downcast::<BacklightView>().is_some() {
-                                let _ = handle.update(cx, |_, window, _| window.remove_window());
-                            }
-                        }
-                        return;
-                    }
-                    if cx
-                        .windows()
-                        .iter()
-                        .all(|handle| handle.downcast::<BacklightView>().is_none())
-                    {
-                        let opened = backlight::open(cx, &observation);
-                        debug!(success = opened.is_ok(), "backlight window opened");
-                    }
-                });
+                // The card translates Off and the off hint.
+                openlogi_core::locale::activate(observation.language.as_deref());
+                cx.update(|cx| backlight::present(cx, &observation));
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            while let Some(observation) = ui_chrome.recv().await {
+                cx.update(|cx| chrome::apply(cx, observation.radius_px));
             }
         })
         .detach();

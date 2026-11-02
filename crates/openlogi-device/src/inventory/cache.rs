@@ -222,6 +222,9 @@ pub(super) async fn probe_or_reuse(
         subscriptions
             .sync_lock_keys(channel, target.index, online)
             .await;
+        subscriptions
+            .sync_backlight_effects(channel, target.index, online)
+            .await;
     }
     probed
 }

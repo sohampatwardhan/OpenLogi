@@ -328,6 +328,7 @@ mod tests {
             power_save: true,
             duration: Some(duration(30)),
             controls,
+            effect: openlogi_core::hid::BacklightEffect::Static,
         }
     }
 

@@ -13,6 +13,7 @@ use std::time::{Instant, SystemTime};
 
 use futures_lite::StreamExt as _;
 use openlogi_core::device::{DeviceInventory, StandaloneDevice};
+use openlogi_core::hid::BacklightEffect;
 use openlogi_hid::inventory::events::{BacklightUpdate, HidppEventSource, LockKeyUpdate};
 use openlogi_hid::{ChannelRegistry, DeviceIoGate};
 use openlogi_ipc::LockKeyChange;
@@ -70,12 +71,16 @@ pub enum InventoryEvent {
     /// set/route/online state looks unchanged across the gap, so the agent
     /// re-applies volatile settings on the next snapshot (#189).
     SystemWake,
-    /// A keyboard firmware event carrying the latest backlight level.
+    /// A keyboard firmware event carrying the latest backlight level and effect.
     BacklightChanged {
         device_index: u8,
         current_level: u8,
         levels: u8,
         visible: bool,
+        effect: BacklightEffect,
+        /// Effect-list bits from `getBacklightConfig`, once read. `None` until
+        /// then: the indicator names only `effect`.
+        supported: Option<u16>,
     },
     /// A keyboard's `LockKeyState` feature (`0x4220`) reported a lock key
     /// turning on or off.
@@ -442,6 +447,8 @@ async fn forward_backlights(
                 current_level: update.current_level,
                 levels: update.levels,
                 visible: update.visible,
+                effect: update.effect,
+                supported: update.supported,
             })
             .is_err()
         {
@@ -450,6 +457,7 @@ async fn forward_backlights(
         debug!(
             device_index = update.device_index,
             current_level = update.current_level,
+            effect = update.effect.label(),
             "backlight event forwarded"
         );
     }

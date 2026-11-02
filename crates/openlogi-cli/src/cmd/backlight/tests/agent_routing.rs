@@ -77,6 +77,7 @@ fn state() -> BacklightState {
         controls: BacklightControls::AUTOMATIC
             | BacklightControls::LEVEL
             | BacklightControls::POWER_SAVE,
+        effect: openlogi_core::hid::BacklightEffect::Static,
     }
 }
 
@@ -184,6 +185,7 @@ async fn bare_and_status_read_exact_agent_routes_without_writing_or_arming() {
             result.unwrap();
             assert!(out.contains(&format!("device: Test keyboard ({expected})")));
             assert!(out.contains("level=2/7 battery-saving=true"));
+            assert!(out.contains("effect=static"));
             assert!(out.contains("offers: on/off, auto, level, battery-saving"));
             assert!(!out.contains('✓'));
         }

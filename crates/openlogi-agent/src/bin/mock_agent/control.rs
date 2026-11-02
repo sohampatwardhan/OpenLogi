@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use openlogi_core::config::AppSettings;
 use openlogi_core::device::{BatteryInfo, BatteryStatus, LockKey};
+use openlogi_core::hid::BacklightEffect;
 use openlogi_hid::{DeviceRoute, WriteError};
 use openlogi_ipc::{LockKeyChange, NoticeKind};
 use tokio::sync::mpsc;
@@ -26,6 +27,10 @@ fail <n> unreachable|error       fail every read and write to an online device
 fail <n> clear                   answer reads and writes again
 lock caps|num|scroll on|off      a keyboard turns a lock key on or off
 backlight <level> <levels>       a keyboard reports its backlight level
+effect <name>                    a keyboard switches backlight effect
+                                 static contrast breathing waves reaction random
+effect off                       the effect key while the backlight is off
+radius <px>                      the UI corner radius, 0 for sharp icons
 advance <seconds>                move frozen test time (--fixture runs only)
 disconnect                       close every client connection
 help                             show this list";
@@ -62,6 +67,13 @@ pub(super) enum Command {
     /// A keyboard reports its backlight `level` of `levels`, level zero
     /// included.
     Backlight { level: u8, levels: u8 },
+    /// A keyboard switches to a predefined backlight effect.
+    Effect(BacklightEffect),
+    /// The effect key, while the backlight is off. Shows the off hint
+    /// instead of the effect list.
+    EffectOff,
+    /// The corner radius the overlay should draw, in pixels. `0` is sharp.
+    Radius(u8),
     /// Move frozen test time forward.
     Advance(Duration),
     /// Close every client connection, as an agent restart does.
@@ -106,6 +118,17 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
         "fail" => parse_fault(&mut words)?,
         "lock" => parse_lock_key(&mut words)?,
         "backlight" => parse_backlight(&mut words)?,
+        "effect" => match words.next() {
+            Some("off") => Command::EffectOff,
+            word => Command::Effect(parse_effect(word)?),
+        },
+        "radius" => {
+            let radius = words
+                .next()
+                .and_then(|word| word.parse::<u8>().ok())
+                .ok_or("radius needs a whole number of pixels")?;
+            Command::Radius(radius)
+        }
         "advance" => {
             let seconds = words
                 .next()
@@ -192,6 +215,29 @@ fn parse_backlight<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Comm
     Ok(Command::Backlight { level, levels })
 }
 
+fn parse_effect(word: Option<&str>) -> Result<BacklightEffect, String> {
+    let Some(word) = word else {
+        return Err(effect_rejected());
+    };
+    BacklightEffect::CYCLE
+        .into_iter()
+        .find(|effect| effect.label() == word)
+        .ok_or_else(effect_rejected)
+}
+
+/// Every effect the backlight key walks, as bits. [`BacklightEffect::None`]
+/// is not among them.
+fn mock_cycle_bits() -> u16 {
+    BacklightEffect::CYCLE
+        .into_iter()
+        .fold(0, |bits, effect| bits | effect.list_bit())
+}
+
+fn effect_rejected() -> String {
+    let names = BacklightEffect::CYCLE.map(BacklightEffect::label).join(" ");
+    format!("effect needs one of: {names}")
+}
+
 impl MockAgent {
     /// Apply `command` under the user's `settings`, as the agent would apply
     /// the event it stands for. Answers what to tell the developer.
@@ -255,6 +301,20 @@ impl MockAgent {
             Command::Backlight { level, levels } => {
                 self.backlight.show(level, levels, true);
                 Ok(format!("showing backlight level {level} of {levels}"))
+            }
+            Command::Effect(effect) => {
+                let supported = BacklightEffect::in_cycle_order(mock_cycle_bits());
+                self.backlight
+                    .show_effect(effect, supported, settings.language.clone());
+                Ok(format!("showing backlight effect {}", effect.label()))
+            }
+            Command::EffectOff => {
+                self.backlight.show_off_hint();
+                Ok("showing the backlight-off effect hint".to_owned())
+            }
+            Command::Radius(radius) => {
+                self.ui_chrome.set_radius(radius);
+                Ok(format!("overlay corner radius is {radius}px"))
             }
             Command::Advance(duration) => {
                 let mut state = self.state.lock().await;

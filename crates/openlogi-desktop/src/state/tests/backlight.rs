@@ -35,6 +35,7 @@ fn lit() -> BacklightState {
             | BacklightControls::LEVEL
             | BacklightControls::POWER_SAVE
             | BacklightControls::DURATION,
+        effect: openlogi_core::hid::BacklightEffect::Static,
     }
 }
 

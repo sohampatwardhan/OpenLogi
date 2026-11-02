@@ -44,13 +44,6 @@ pub(crate) enum Edge {
     /// The backlight effect list uses this. That list is the vertical
     /// switcher, and it stays centred instead of following
     /// [`Edge::platform_default`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no card opens centred until the backlight effect list"
-        )
-    )]
     Centre,
 }
 
@@ -255,6 +248,102 @@ pub(crate) fn origin_device(
         f32_from_device(margin),
     );
     point(device_from_f32(placed.x), device_from_f32(placed.y))
+}
+
+/// Space kept between a centred card and an edge card it was moved clear of.
+pub(crate) const CLEARANCE: f32 = 12.0;
+
+/// `placed`, a window of `window` size, moved off `keep_out` and kept
+/// inside `area`.
+///
+/// A window that does not overlap `keep_out` (with [`CLEARANCE`] around it)
+/// stays where it is. One that does moves on the vertical axis only, to the
+/// far side of `keep_out` from that card's centre: below a card at the top,
+/// above one at the bottom. When `area` has no room there, the window is
+/// clamped to `area` rather than leaving it.
+#[must_use]
+pub(crate) fn clear_of(placed: Origin, window: Span, area: Rect, keep_out: Rect) -> Origin {
+    let overlaps_x = placed.x < keep_out.x + keep_out.width && keep_out.x < placed.x + window.width;
+    let overlaps_y = placed.y < keep_out.y + keep_out.height + CLEARANCE
+        && keep_out.y - CLEARANCE < placed.y + window.height;
+    if !(overlaps_x && overlaps_y) {
+        return placed;
+    }
+    let keep_out_centre = keep_out.y + keep_out.height / 2.0;
+    let window_centre = placed.y + window.height / 2.0;
+    let y = if keep_out_centre <= window_centre {
+        keep_out.y + keep_out.height + CLEARANCE
+    } else {
+        keep_out.y - CLEARANCE - window.height
+    };
+    let max_y = (area.y + area.height - window.height).max(area.y);
+    Origin {
+        x: placed.x,
+        y: y.clamp(area.y, max_y),
+    }
+}
+
+/// Top-left of a [`Edge::Centre`] card on `display` that does not cover an
+/// `edge_card` sized card on `edge` of `usable`.
+///
+/// The backlight effect list is centred while the brightness card follows
+/// [`Edge::platform_default`], and both can be up at once: one key changes
+/// the level, another the effect. On macOS that card sits under the menu bar,
+/// so a list tall enough to reach it is pushed down below it instead.
+/// [`Edge::Centre`] as `edge` keeps nothing clear.
+#[must_use]
+pub(crate) fn centre_clear_of(
+    display: Rect,
+    usable: Rect,
+    window: Span,
+    edge: Edge,
+    edge_card: Span,
+) -> Origin {
+    let placed = origin(Edge::Centre, display, window, 0.0);
+    if edge == Edge::Centre {
+        return placed;
+    }
+    let card = origin(edge, usable, edge_card, EDGE_MARGIN);
+    clear_of(
+        placed,
+        window,
+        display,
+        Rect {
+            x: card.x,
+            y: card.y,
+            width: edge_card.width,
+            height: edge_card.height,
+        },
+    )
+}
+
+/// [`centre_clear_of`] for GPUI logical-pixel rectangles, keeping clear of
+/// a card on [`Edge::platform_default`].
+#[must_use]
+pub(crate) fn centre_clear_of_px(
+    display: Bounds<Pixels>,
+    usable: Bounds<Pixels>,
+    window: Size<Pixels>,
+    edge_card: Size<Pixels>,
+) -> Point<Pixels> {
+    let rect = |area: Bounds<Pixels>| Rect {
+        x: area.origin.x.as_f32(),
+        y: area.origin.y.as_f32(),
+        width: area.size.width.as_f32(),
+        height: area.size.height.as_f32(),
+    };
+    let span = |size: Size<Pixels>| Span {
+        width: size.width.as_f32(),
+        height: size.height.as_f32(),
+    };
+    let placed = centre_clear_of(
+        rect(display),
+        rect(usable),
+        span(window),
+        Edge::platform_default(),
+        span(edge_card),
+    );
+    point(px(placed.x), px(placed.y))
 }
 
 /// `cards` is oldest-first. The returned order paints top-to-bottom so the
@@ -493,6 +582,78 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             vec![10, 20, 30]
+        );
+    }
+
+    #[test]
+    fn a_short_centred_list_stays_centred_beside_a_top_card() {
+        // A 1440x900 display under a 25pt menu bar.
+        let display = area(0.0, 0.0, 1440.0, 900.0);
+        let usable = area(0.0, 25.0, 1440.0, 875.0);
+        let list = window(360.0, 280.0);
+        let card = window(640.0, 64.0);
+        assert_eq!(
+            centre_clear_of(display, usable, list, Edge::Top, card),
+            origin(Edge::Centre, display, list, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_tall_centred_list_moves_below_the_top_card() {
+        // Card: 25 + 48 = 73 to 137. A 700-tall list would start at 100.
+        let display = area(0.0, 0.0, 1440.0, 900.0);
+        let usable = area(0.0, 25.0, 1440.0, 875.0);
+        let list = window(360.0, 700.0);
+        let card = window(640.0, 64.0);
+        let placed = centre_clear_of(display, usable, list, Edge::Top, card);
+        assert_eq!(placed.x, 540.0);
+        assert_eq!(placed.y, 73.0 + 64.0 + CLEARANCE);
+    }
+
+    #[test]
+    fn a_list_that_cannot_clear_the_card_still_stays_on_the_display() {
+        let display = area(0.0, 0.0, 1440.0, 900.0);
+        let usable = area(0.0, 25.0, 1440.0, 875.0);
+        let list = window(360.0, 880.0);
+        let card = window(640.0, 64.0);
+        let placed = centre_clear_of(display, usable, list, Edge::Top, card);
+        assert_eq!(placed.y, 20.0);
+    }
+
+    #[test]
+    fn a_tall_centred_list_moves_above_a_bottom_card() {
+        // Card: 1080 - 48 (panel) - 48 - 64 = 920 to 984.
+        let display = area(0.0, 0.0, 1920.0, 1080.0);
+        let usable = area(0.0, 0.0, 1920.0, 1032.0);
+        let list = window(360.0, 900.0);
+        let card = window(300.0, 64.0);
+        let placed = centre_clear_of(display, usable, list, Edge::Bottom, card);
+        assert_eq!(placed.y, 920.0 - CLEARANCE - 900.0);
+    }
+
+    #[test]
+    fn a_centre_edge_keeps_nothing_clear() {
+        let display = area(0.0, 0.0, 1440.0, 900.0);
+        let list = window(360.0, 700.0);
+        assert_eq!(
+            centre_clear_of(display, display, list, Edge::Centre, window(640.0, 64.0)),
+            origin(Edge::Centre, display, list, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_card_beside_the_window_is_not_in_the_way() {
+        let display = area(0.0, 0.0, 1000.0, 1000.0);
+        let placed = Origin { x: 0.0, y: 0.0 };
+        let beside = Rect {
+            x: 600.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        assert_eq!(
+            clear_of(placed, window(300.0, 300.0), display, beside),
+            placed
         );
     }
 

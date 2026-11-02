@@ -174,6 +174,10 @@ pub(crate) fn card_attempts(
     logical: Size<Pixels>,
     edge: Edge,
     margin: f32,
+    // The brightness card sits above the taskbar here, and the effect list
+    // (at most seven rows) never reaches down to it on a real monitor, so
+    // the centred list is not moved. macOS and Linux apply it.
+    _keep_clear: Option<Size<Pixels>>,
 ) -> Vec<WindowOptions> {
     let options = native::primary_area().map_or_else(
         |_| gpui_card(cx, app_id, logical, edge, margin),

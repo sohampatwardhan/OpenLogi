@@ -52,6 +52,7 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use openlogi_agent_core::backlight_overlay::BacklightOverlayManager;
 use openlogi_agent_core::lock_keys::LockKeyIndicator;
 use openlogi_agent_core::notices::{LowBatteryWatch, NoticeBoard};
+use openlogi_agent_core::ui_chrome::UiChrome;
 use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::ActionRingSlot;
 use openlogi_core::config::{AppSettings, Config, Lighting};
@@ -70,11 +71,11 @@ use openlogi_hid::{
 use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
-    BacklightObservation, ClientKind, ConfigReloadError, FlowStatus, ForegroundApps, FoundDevice,
-    Generation, Identity, InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent,
-    NoticeKind, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
-    PairingCommandError, PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig,
-    SavedConfigVerdict,
+    BacklightEffectObservation, BacklightObservation, ClientKind, ConfigReloadError, FlowStatus,
+    ForegroundApps, FoundDevice, Generation, Identity, InventoryHealth, LockKeyChange,
+    LockKeyObservation, MonitorEvent, NoticeKind, NoticeObservation, OBSERVE_HOLD, Observation,
+    PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase, PairingUpdate,
+    RingObservation, SavedConfig, SavedConfigVerdict,
 };
 use succession::Compat;
 use tarpc::context::Context;
@@ -919,6 +920,8 @@ struct MockAgent {
     lock_keys: LockKeyIndicator,
     /// The backlight indicator the overlay shows, ended as the agent ends it.
     backlight: BacklightOverlayManager,
+    /// The corner radius the overlay draws Material Symbols with.
+    ui_chrome: UiChrome,
     /// Signalled by the console to close every open client connection. Each
     /// connection holds one receiver.
     disconnects: Arc<watch::Sender<()>>,
@@ -940,6 +943,7 @@ impl MockAgent {
             notices: Arc::new(NoticeBoard::default()),
             lock_keys: LockKeyIndicator::default(),
             backlight: BacklightOverlayManager::default(),
+            ui_chrome: UiChrome::from_setting(None),
             disconnects: Arc::new(disconnects),
             settings: app_settings,
         }
@@ -1050,6 +1054,26 @@ impl Agent for MockAgent {
 
     async fn observe_backlight(self, _: Context, since: Generation) -> BacklightObservation {
         self.backlight.observe(since).await
+    }
+
+    async fn observe_backlight_effect(
+        self,
+        _: Context,
+        since: Generation,
+    ) -> BacklightEffectObservation {
+        self.backlight.observe_effect(since).await
+    }
+
+    async fn set_overlay_radius(self, _: Context, radius_px: u8) {
+        self.ui_chrome.set_radius(radius_px);
+    }
+
+    async fn observe_ui_chrome(
+        self,
+        _: Context,
+        since: Generation,
+    ) -> openlogi_ipc::UiChromeObservation {
+        self.ui_chrome.observe(since).await
     }
 
     async fn action_ring_hover(

@@ -340,6 +340,11 @@ impl AppState {
     }
     /// Send a device command to the agent over IPC, logging a dropped channel
     /// (the client thread is gone) rather than surfacing it.
+    /// The corner radius just applied to the theme, for the overlay's icons.
+    pub(crate) fn report_overlay_radius(&self, radius_px: u8) {
+        self.send_ipc(crate::services::ipc::SetOverlayRadius { radius_px });
+    }
+
     fn send_ipc(&self, command: impl Into<crate::services::ipc::Command>) -> bool {
         if self.ipc_commands.send(command.into()).is_err() {
             warn!("IPC client thread is gone — device command dropped");

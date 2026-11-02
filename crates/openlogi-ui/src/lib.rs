@@ -13,3 +13,4 @@
 pub mod action_icons;
 #[cfg(feature = "gpui")]
 pub mod color;
+pub mod material;
