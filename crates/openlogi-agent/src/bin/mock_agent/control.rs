@@ -447,13 +447,7 @@ impl MockAgent {
         };
         let posted = self.announce_low_batteries(settings).await;
         let charging = self.note_charging(settings).await;
-        let mut connection = self.note_connections(settings).await;
-        if !online && connection.is_empty() && settings.connection_notifications {
-            connection = format!(
-                "; Disconnected shows in {}s unless it comes back",
-                openlogi_agent_core::connection::DISCONNECT_GRACE.as_secs()
-            );
-        }
+        let connection = self.note_connections(settings).await;
         let link = if online { "online" } else { "offline" };
         Ok(format!("{route}: {link}{posted}{charging}{connection}"))
     }
