@@ -14,30 +14,6 @@
 use gpui::DevicePixels;
 use gpui::{Bounds, Pixels, Point, Size, point, px};
 
-/// [`Edge::Top`] as a value, so every host's bin constructs it.
-pub(crate) const TOP: Edge = Edge::Top;
-/// [`Edge::Bottom`] as a value, so every host's bin constructs it.
-pub(crate) const BOTTOM: Edge = Edge::Bottom;
-/// The backlight effect list: centred on every operating system.
-///
-/// That list does not follow [`Edge::platform_default`]. Pass this to
-/// [`crate::popup::open_at`].
-pub(crate) const EFFECT_LIST: Edge = Edge::Centre;
-
-/// Return `edge`.
-///
-/// The match names [`TOP`], [`BOTTOM`], and [`EFFECT_LIST`], which is what
-/// keeps every variant constructed on hosts whose [`Edge::platform_default`]
-/// is only one of them.
-#[must_use]
-pub(crate) const fn selected(edge: Edge) -> Edge {
-    match edge {
-        Edge::Top => TOP,
-        Edge::Bottom => BOTTOM,
-        Edge::Centre => EFFECT_LIST,
-    }
-}
-
 /// Distance from the chosen edge to the card window, in logical pixels.
 ///
 /// The usable area already excludes the menu bar, notch, Dock, taskbar, or
@@ -45,18 +21,36 @@ pub(crate) const fn selected(edge: Edge) -> Edge {
 /// flush with that chrome. Windows scales it with the monitor DPI.
 pub(crate) const EDGE_MARGIN: f32 = 48.0;
 
+/// Space between two cards stacked on the same edge, in logical pixels.
+pub(crate) const STACK_GAP: f32 = 12.0;
+
 /// Where a transient overlay card sits in its display.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Edge {
     /// The top of the usable area. The newest stacked card is the one nearest it.
+    #[cfg_attr(
+        all(not(test), not(target_os = "macos")),
+        expect(dead_code, reason = "only macOS's platform default is the top")
+    )]
     Top,
     /// The bottom of the usable area. The newest stacked card is the one nearest it.
+    #[cfg_attr(
+        all(not(test), target_os = "macos"),
+        expect(dead_code, reason = "macOS's platform default is the top")
+    )]
     Bottom,
     /// The centre of the whole display, on every operating system.
     ///
     /// The backlight effect list uses this. That list is the vertical
     /// switcher, and it stays centred instead of following
-    /// [`Edge::platform_default`]. Pass it to [`crate::popup::open_at`].
+    /// [`Edge::platform_default`].
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "no card opens centred until the backlight effect list"
+        )
+    )]
     Centre,
 }
 
@@ -103,6 +97,13 @@ impl Edge {
     /// Only the side this edge anchors to receives `margin`. Centre anchors
     /// to no side, so every component is zero.
     #[must_use]
+    #[cfg_attr(
+        all(not(test), not(target_os = "linux")),
+        expect(
+            dead_code,
+            reason = "only Linux layer-shell surfaces take a per-side margin"
+        )
+    )]
     pub(crate) const fn inset(self, margin: f32) -> (f32, f32, f32, f32) {
         match self {
             Self::Top => (margin, 0.0, 0.0, 0.0),
@@ -169,9 +170,14 @@ pub(crate) fn origin(edge: Edge, area: Rect, window: Span, margin: f32) -> Origi
     }
 }
 
-/// [`origin`] for a GPUI logical-pixel rectangle, inset by [`EDGE_MARGIN`].
+/// [`origin`] for a GPUI logical-pixel rectangle, `margin` from `edge`.
 #[must_use]
-pub(crate) fn origin_px(edge: Edge, area: Bounds<Pixels>, window: Size<Pixels>) -> Point<Pixels> {
+pub(crate) fn origin_px(
+    edge: Edge,
+    area: Bounds<Pixels>,
+    window: Size<Pixels>,
+    margin: f32,
+) -> Point<Pixels> {
     let placed = origin(
         edge,
         Rect {
@@ -184,9 +190,39 @@ pub(crate) fn origin_px(edge: Edge, area: Bounds<Pixels>, window: Size<Pixels>) 
             width: window.width.as_f32(),
             height: window.height.as_f32(),
         },
-        EDGE_MARGIN,
+        margin,
     );
     point(px(placed.x), px(placed.y))
+}
+
+/// A card already open on the platform edge: how far past [`EDGE_MARGIN`]
+/// it sits, and its height, in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Stacked {
+    /// Distance from the margin to the card's edge-side border.
+    pub(crate) offset: f32,
+    /// The card's height.
+    pub(crate) height: f32,
+}
+
+/// How far past [`EDGE_MARGIN`] a `height` card opens so it covers none of
+/// `open`: the gap nearest the edge that fits it, with [`STACK_GAP`] to
+/// each neighbour, else past the farthest card.
+///
+/// The cards are separate windows that come and go on their own clocks, so
+/// a card that closes leaves its gap, and the next card fills it.
+#[must_use]
+pub(crate) fn stack_offset(open: &[Stacked], height: f32) -> f32 {
+    let mut taken = open.to_vec();
+    taken.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+    let mut offset = 0.0_f32;
+    for card in taken {
+        if offset + height + STACK_GAP <= card.offset {
+            break;
+        }
+        offset = offset.max(card.offset + card.height + STACK_GAP);
+    }
+    offset
 }
 
 /// [`origin`] for Windows physical pixels.
@@ -407,11 +443,11 @@ mod tests {
         let usable = Bounds::new(point(px(-640.0), px(1080.0)), size(px(1920.0), px(1055.0)));
         let card = size(px(344.0), px(88.0));
         assert_eq!(
-            origin_px(Edge::Top, usable, card),
+            origin_px(Edge::Top, usable, card, EDGE_MARGIN),
             point(px(148.0), px(1128.0))
         );
         assert_eq!(
-            origin_px(Edge::Bottom, usable, card),
+            origin_px(Edge::Bottom, usable, card, EDGE_MARGIN),
             point(px(148.0), px(1999.0))
         );
 
@@ -457,6 +493,43 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             vec![10, 20, 30]
+        );
+    }
+
+    #[test]
+    fn a_card_opens_past_the_cards_already_on_its_edge() {
+        let card = |offset, height| Stacked { offset, height };
+        assert_eq!(
+            stack_offset(&[], 60.0),
+            0.0,
+            "an empty edge is at the margin"
+        );
+        assert_eq!(
+            stack_offset(&[card(0.0, 60.0)], 80.0),
+            60.0 + STACK_GAP,
+            "the second card sits past the first"
+        );
+        assert_eq!(
+            stack_offset(&[card(60.0 + STACK_GAP, 80.0), card(0.0, 60.0)], 40.0),
+            60.0 + STACK_GAP + 80.0 + STACK_GAP,
+            "order of the open cards does not matter"
+        );
+    }
+
+    #[test]
+    fn a_closed_card_leaves_a_gap_only_a_card_that_fits_takes() {
+        let card = |offset, height| Stacked { offset, height };
+        // The 60px card at the margin closed; an 80px card stays past it.
+        let open = [card(60.0 + STACK_GAP, 80.0)];
+        assert_eq!(
+            stack_offset(&open, 60.0),
+            0.0,
+            "a card that fits fills the gap"
+        );
+        assert_eq!(
+            stack_offset(&open, 100.0),
+            60.0 + STACK_GAP + 80.0 + STACK_GAP,
+            "a taller card would cover its neighbour, so it goes past it"
         );
     }
 }

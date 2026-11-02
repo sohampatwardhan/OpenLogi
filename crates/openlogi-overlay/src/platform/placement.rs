@@ -5,7 +5,7 @@ use gpui::{
 };
 use tracing::warn;
 
-use crate::edge::{Edge, origin_px};
+use crate::edge::{EDGE_MARGIN, Edge, origin_px};
 use crate::notice::{NOTICE_APP_ID, card_window_options};
 use crate::ring::{Placement, WINDOW_SIZE, clamp_window_origin, ring_window_options};
 
@@ -95,7 +95,14 @@ impl NoticePlacement {
         let attempts = if on_wayland() {
             wayland_card_windows(size, app_id, edge)
         } else {
-            vec![positioned_card(cx, size, app_id, monitor, edge)]
+            vec![positioned_card(
+                cx,
+                size,
+                app_id,
+                monitor,
+                edge,
+                EDGE_MARGIN,
+            )]
         };
         Ok(Self { attempts })
     }
@@ -191,16 +198,17 @@ fn positioned_window(cx: &gpui::App) -> (WindowOptions, Placement) {
     (options, Placement::Window)
 }
 
-/// A card on `monitor` at `edge`.
+/// A card on `monitor`, `margin` from `edge`.
 ///
 /// Top and bottom use the usable area when the platform reports one.
-/// [`Edge::Centre`] uses the whole display.
+/// [`Edge::Centre`] uses the whole display and ignores `margin`.
 fn positioned_card(
     cx: &gpui::App,
     size: Size<Pixels>,
     app_id: &str,
     monitor: super::PopupMonitor,
     edge: Edge,
+    margin: f32,
 ) -> WindowOptions {
     let screen = match monitor {
         super::PopupMonitor::Cursor => cursor_screen(cx),
@@ -211,7 +219,7 @@ fn positioned_card(
     } else {
         screen.usable.or(screen.bounds)
     };
-    let origin = area.map_or_else(Point::default, |area| origin_px(edge, area, size));
+    let origin = area.map_or_else(Point::default, |area| origin_px(edge, area, size, margin));
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(origin, size))),
         display_id: screen.display_id,
@@ -235,19 +243,21 @@ fn primary_screen(cx: &gpui::App) -> CursorScreen {
 /// Windows to try for a card on `edge`, best first.
 ///
 /// [`Edge::Centre`] is one ordinary window in the middle of the primary
-/// display. The platform edges try a layer-shell surface on Wayland first.
+/// display. The platform edges try a layer-shell surface on Wayland first,
+/// `margin` from the edge.
 pub(crate) fn card_attempts(
     cx: &gpui::App,
     app_id: &str,
     size: Size<Pixels>,
     edge: Edge,
+    margin: f32,
 ) -> Vec<WindowOptions> {
-    let plain = positioned_card(cx, size, app_id, super::PopupMonitor::Primary, edge);
+    let plain = positioned_card(cx, size, app_id, super::PopupMonitor::Primary, edge, margin);
     if edge.in_full_display() || !on_wayland() {
         vec![plain]
     } else {
         let bounds = Some(WindowBounds::Windowed(Bounds::new(Point::default(), size)));
-        layer_shell_card(app_id, bounds, edge)
+        layer_shell_card(app_id, bounds, edge, margin)
             .into_iter()
             .chain([plain])
             .collect()
@@ -264,7 +274,7 @@ fn wayland_card_windows(size: Size<Pixels>, app_id: &str, edge: Edge) -> Vec<Win
         window_bounds: bounds,
         ..card_window_options(app_id)
     };
-    layer_shell_card(app_id, bounds, edge)
+    layer_shell_card(app_id, bounds, edge, EDGE_MARGIN)
         .into_iter()
         .chain([plain])
         .collect()
@@ -277,6 +287,7 @@ fn layer_shell_card(
     app_id: &str,
     bounds: Option<WindowBounds>,
     edge: Edge,
+    margin: f32,
 ) -> Option<WindowOptions> {
     use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
 
@@ -289,7 +300,7 @@ fn layer_shell_card(
         // The effect list stays an ordinary centred window.
         Edge::Centre => return None,
     };
-    let (top, right, bottom, left) = edge.inset(crate::edge::EDGE_MARGIN);
+    let (top, right, bottom, left) = edge.inset(margin);
     Some(WindowOptions {
         kind: gpui::WindowKind::LayerShell(LayerShellOptions {
             namespace: app_id.to_string(),
@@ -309,6 +320,7 @@ const fn layer_shell_card(
     _app_id: &str,
     _bounds: Option<WindowBounds>,
     _edge: Edge,
+    _margin: f32,
 ) -> Option<WindowOptions> {
     None
 }

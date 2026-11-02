@@ -141,6 +141,7 @@ pub(crate) fn card_bounds_in_work(
     dpi: u32,
     logical: Size<Pixels>,
     edge: Edge,
+    margin: f32,
 ) -> Bounds<Pixels> {
     let scaled =
         |value: f32| DevicePixels((f64::from(value) * f64::from(dpi) / 96.0).round() as i32);
@@ -152,7 +153,7 @@ pub(crate) fn card_bounds_in_work(
                 scaled(logical.width.as_f32()),
                 scaled(logical.height.as_f32()),
             ),
-            scaled(EDGE_MARGIN),
+            scaled(margin),
         ),
         size(
             scaled(logical.width.as_f32()),
@@ -172,16 +173,17 @@ pub(crate) fn card_attempts(
     app_id: &str,
     logical: Size<Pixels>,
     edge: Edge,
+    margin: f32,
 ) -> Vec<WindowOptions> {
     let options = native::primary_area().map_or_else(
-        |_| gpui_card(cx, app_id, logical, edge),
+        |_| gpui_card(cx, app_id, logical, edge, margin),
         |area| {
             let rect = if edge.in_full_display() {
                 area.display
             } else {
                 area.work
             };
-            let bounds = card_bounds_in_work(rect, area.dpi, logical, edge);
+            let bounds = card_bounds_in_work(rect, area.dpi, logical, edge, margin);
             WindowOptions {
                 display_id: Some(area.display_id),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -194,11 +196,17 @@ pub(crate) fn card_attempts(
 
 /// Primary-display fallback when the monitor cannot be read.
 #[cfg(target_os = "windows")]
-fn gpui_card(cx: &gpui::App, app_id: &str, logical: Size<Pixels>, edge: Edge) -> WindowOptions {
+fn gpui_card(
+    cx: &gpui::App,
+    app_id: &str,
+    logical: Size<Pixels>,
+    edge: Edge,
+    margin: f32,
+) -> WindowOptions {
     let display = cx.primary_display();
     let display_id = display.as_ref().map(|display| display.id());
     let origin = display.map_or(Point::default(), |display| {
-        crate::edge::origin_px(edge, display.bounds(), logical)
+        crate::edge::origin_px(edge, display.bounds(), logical, margin)
     });
     WindowOptions {
         display_id,
@@ -454,15 +462,15 @@ mod tests {
         // centre is (-2560 + (2560 - 450) / 2) = -1505. Bottom:
         // 1497 - 90 - 60 = 1347. Divided by 1.25 those are logical -1204 and
         // 1077.6.
-        let bottom = card_bounds_in_work(work, 120, card, Edge::Bottom);
+        let bottom = card_bounds_in_work(work, 120, card, Edge::Bottom, EDGE_MARGIN);
         assert_eq!(bottom.origin, point(px(-1204.0), px(1077.6)));
         assert_eq!(bottom.size, size(px(360.0), px(72.0)));
         // Top: device y = 105 + 60 = 165, logical 165 / 1.25 = 132.
-        let top = card_bounds_in_work(work, 120, card, Edge::Top);
+        let top = card_bounds_in_work(work, 120, card, Edge::Top, EDGE_MARGIN);
         assert_eq!(top.origin, point(px(-1204.0), px(132.0)));
         // Centre ignores the margin: device y = 105 + (1392 - 90) / 2 = 756,
         // and 756 / 1.25 = 604.8.
-        let centre = card_bounds_in_work(work, 120, card, Edge::Centre);
+        let centre = card_bounds_in_work(work, 120, card, Edge::Centre, EDGE_MARGIN);
         assert_eq!(centre.origin, point(px(-1204.0), px(604.8)));
     }
 }
