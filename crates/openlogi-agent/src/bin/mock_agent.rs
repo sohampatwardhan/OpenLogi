@@ -52,9 +52,11 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use openlogi_agent_core::backlight_overlay::BacklightOverlayManager;
 use openlogi_agent_core::charging::{ChargingIndicator, ChargingSample};
 use openlogi_agent_core::connection::{ConnectionIndicator, ConnectionSample};
+use openlogi_agent_core::dpi_popup::DpiIndicator;
 use openlogi_agent_core::lock_keys::LockKeyIndicator;
 use openlogi_agent_core::notices::{LowBatteryWatch, NoticeBoard};
 use openlogi_agent_core::ui_chrome::UiChrome;
+use openlogi_agent_core::wheel_mode::WheelModeIndicator;
 use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::ActionRingSlot;
 use openlogi_core::config::{AppSettings, Config, Lighting};
@@ -74,10 +76,11 @@ use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
     BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    ConfigReloadError, ConnectionObservation, FlowStatus, ForegroundApps, FoundDevice, Generation,
-    Identity, InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, NoticeKind,
-    NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION, PairingCommandError,
-    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
+    ConfigReloadError, ConnectionObservation, DpiObservation, FlowStatus, ForegroundApps,
+    FoundDevice, Generation, Identity, InventoryHealth, LockKeyChange, LockKeyObservation,
+    MonitorEvent, NoticeKind, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
+    PairingCommandError, PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig,
+    SavedConfigVerdict, WheelModeObservation,
 };
 use succession::Compat;
 use tarpc::context::Context;
@@ -974,6 +977,10 @@ struct MockAgent {
     charging: ChargingIndicator,
     /// The connection indicator the overlay shows.
     connection: ConnectionIndicator,
+    /// The wheel-mode indicator the overlay shows.
+    wheel_mode: WheelModeIndicator,
+    /// The DPI indicator the overlay shows.
+    dpi: DpiIndicator,
     /// Signalled by the console to close every open client connection. Each
     /// connection holds one receiver.
     disconnects: Arc<watch::Sender<()>>,
@@ -997,6 +1004,13 @@ impl MockAgent {
         // `disconnect` is a real transition.
         let connection = ConnectionIndicator::default();
         connection.note(&state.connection_samples(), &AppSettings::default());
+        // The mock mouse's wheel starts in ratchet, so the first `wheel free`
+        // is a real switch.
+        let wheel_mode = WheelModeIndicator::default();
+        wheel_mode.connected(
+            control::MOCK_WHEEL,
+            openlogi_core::hid::SmartShiftMode::Ratchet,
+        );
         Self {
             state: Arc::new(Mutex::new(state)),
             served: Arc::new(Mutex::new(served)),
@@ -1006,6 +1020,8 @@ impl MockAgent {
             ui_chrome: UiChrome::from_setting(None),
             charging,
             connection,
+            wheel_mode,
+            dpi: DpiIndicator::default(),
             disconnects: Arc::new(disconnects),
             settings: app_settings,
         }
@@ -1431,6 +1447,14 @@ impl Agent for MockAgent {
 
     async fn observe_connection(self, _: Context, since: Generation) -> ConnectionObservation {
         self.connection.observe(since).await
+    }
+
+    async fn observe_wheel_mode(self, _: Context, since: Generation) -> WheelModeObservation {
+        self.wheel_mode.observe(since).await
+    }
+
+    async fn observe_dpi(self, _: Context, since: Generation) -> DpiObservation {
+        self.dpi.observe(since).await
     }
 
     async fn read_disable_keys(

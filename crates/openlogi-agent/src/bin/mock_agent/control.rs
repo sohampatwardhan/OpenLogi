@@ -7,11 +7,12 @@
 use std::io::{BufRead as _, Write as _};
 use std::time::Duration;
 
+use openlogi_agent_core::wheel_mode::WheelNode;
 use openlogi_core::config::AppSettings;
 use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, LockKey};
-use openlogi_core::hid::BacklightEffect;
+use openlogi_core::hid::{BacklightEffect, Dpi, SmartShiftMode};
 use openlogi_hid::{DeviceRoute, WriteError};
-use openlogi_ipc::{LockKeyChange, NoticeKind};
+use openlogi_ipc::{DpiPopup, LockKeyChange, NoticeKind};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -35,6 +36,9 @@ radius <px>                      the UI corner radius, 0 for sharp icons
 charge <n> [percent]             the device starts charging
 unplug <n> [percent]             the device is unplugged and discharging
 full <n> [percent]               the device is fully charged, still on power
+wheel free|ratchet               the mouse's wheel button switches the wheel
+dpi <dpi> [<preset>...]          a DPI button sets a DPI, e.g. dpi 1600 800 1600 3200
+precision on|off                 a precision-mode button turns it on or off
 advance <seconds>                move frozen test time (--fixture runs only)
 disconnect                       with no device, close every client connection
 help                             show this list";
@@ -87,6 +91,12 @@ pub(super) enum Command {
         status: BatteryStatus,
         percentage: Option<u8>,
     },
+    /// The mouse's wheel button switches its wheel to a mode.
+    Wheel(SmartShiftMode),
+    /// A DPI button sets `dpi`, one of `presets` when they are given.
+    Dpi { dpi: Dpi, presets: Vec<Dpi> },
+    /// A precision-mode button turns precision mode on or off.
+    Precision(bool),
     /// Move frozen test time forward.
     Advance(Duration),
     /// Close every client connection, as an agent restart does.
@@ -113,6 +123,14 @@ impl Fault {
         }
     }
 }
+
+/// The mock mouse's wheel, as its broadcasts would name it: slot 1 of a Bolt
+/// receiver.
+pub(super) const MOCK_WHEEL: WheelNode = WheelNode {
+    vendor_id: 0x046d,
+    product_id: 0xc548,
+    device_index: 1,
+};
 
 /// Parse one console line. A blank line is no command.
 pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
@@ -154,6 +172,17 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
         "charge" => parse_power(BatteryStatus::Charging, &mut words)?,
         "unplug" => parse_power(BatteryStatus::Discharging, &mut words)?,
         "full" => parse_power(BatteryStatus::Full, &mut words)?,
+        "wheel" => match words.next() {
+            Some("free") => Command::Wheel(SmartShiftMode::Free),
+            Some("ratchet") => Command::Wheel(SmartShiftMode::Ratchet),
+            _ => return Err("wheel needs `free` or `ratchet`".to_owned()),
+        },
+        "dpi" => parse_dpi(&mut words)?,
+        "precision" => match words.next() {
+            Some("on") => Command::Precision(true),
+            Some("off") => Command::Precision(false),
+            _ => return Err("precision needs `on` or `off`".to_owned()),
+        },
         "advance" => {
             let seconds = words
                 .next()
@@ -245,6 +274,22 @@ fn parse_power<'a>(
         status,
         percentage,
     })
+}
+
+/// `dpi <dpi> [<preset>...]`: the DPI set, then the presets it cycles
+/// through, the DPI among them.
+fn parse_dpi<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Command, String> {
+    let parse = |word: &str| {
+        word.parse::<u16>()
+            .map(Dpi::new)
+            .map_err(|_| format!("`{word}` is not a DPI value"))
+    };
+    let dpi = parse(words.next().ok_or("dpi needs a DPI value")?)?;
+    let presets = words.map(parse).collect::<Result<Vec<_>, _>>()?;
+    if !presets.is_empty() && !presets.contains(&dpi) {
+        return Err(format!("{dpi} is not one of the presets"));
+    }
+    Ok(Command::Dpi { dpi, presets })
 }
 
 fn parse_backlight<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Command, String> {
@@ -354,6 +399,22 @@ impl MockAgent {
                 self.ui_chrome.set_radius(radius);
                 Ok(format!("overlay corner radius is {radius}px"))
             }
+            Command::Wheel(mode) => {
+                self.wheel_mode.configure(settings);
+                if self.wheel_mode.switched(MOCK_WHEEL, mode) {
+                    Ok(format!("showing wheel {mode:?}"))
+                } else {
+                    Ok(format!(
+                        "not shown: the wheel was already {mode:?}, or wheel_mode_notifications is off"
+                    ))
+                }
+            }
+            Command::Dpi { dpi, presets } => {
+                Ok(self.show_dpi(DpiPopup::Preset { dpi, presets }, settings))
+            }
+            Command::Precision(engaged) => {
+                Ok(self.show_dpi(DpiPopup::Precision { engaged }, settings))
+            }
             Command::Advance(duration) => {
                 let mut state = self.state.lock().await;
                 state.clock.advance(duration)?;
@@ -364,6 +425,18 @@ impl MockAgent {
                 self.disconnects.send_replace(());
                 Ok(format!("closed {connections} client connection(s)"))
             }
+        }
+    }
+
+    /// Show `popup` on the DPI indicator, as a DPI or precision press does.
+    /// Answers what to tell the developer.
+    fn show_dpi(&self, popup: DpiPopup, settings: &AppSettings) -> String {
+        self.dpi.configure(settings);
+        let shown = format!("showing {popup:?}");
+        if self.dpi.show(popup) {
+            shown
+        } else {
+            "not shown: dpi_notifications is off".to_owned()
         }
     }
 

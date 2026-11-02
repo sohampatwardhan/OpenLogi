@@ -35,6 +35,16 @@ impl DpiCycles {
         Some((key, state.lowest()?, state.target.clone()?))
     }
 
+    /// The DPI presets of `key` (same fallback as [`Self::state_for`]), for
+    /// the DPI popup. Empty when the device has none.
+    #[must_use]
+    pub(crate) fn presets_of(&self, key: Option<&str>) -> Vec<Dpi> {
+        key.or(self.selected.as_deref())
+            .and_then(|key| self.by_key.get(key))
+            .map(|state| state.presets.clone())
+            .unwrap_or_default()
+    }
+
     /// The DPI config or an action last set on `key`'s sensor, when known.
     #[must_use]
     pub fn current(&self, key: &str) -> Option<Dpi> {

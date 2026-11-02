@@ -237,6 +237,9 @@ pub(super) async fn probe_or_reuse(
         subscriptions
             .sync_backlight_effects(channel, target.index, online)
             .await;
+        subscriptions
+            .sync_wheel_mode(channel, target.index, online)
+            .await;
     }
     (probed, outcome)
 }

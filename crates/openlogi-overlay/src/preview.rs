@@ -1,7 +1,7 @@
 //! Dev-only side-by-side of the transient indicators.
 //!
 //! `OPENLOGI_OSD_PREVIEW=light` or `dark` opens discharging, charging, full,
-//! low-battery, and connection indicators on one backdrop. `sharp` and `sharp-dark` draw
+//! low-battery, connection, wheel-mode, and DPI indicators on one backdrop. `sharp` and `sharp-dark` draw
 //! the same cards with the sharp battery cut. `OPENLOGI_OSD_RADIUS=0` forces
 //! that cut on any of those modes. It does not connect to an agent.
 
@@ -10,19 +10,21 @@ use gpui::{
     WindowBounds, WindowOptions, div, point, px, size,
 };
 use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, ConnectionLink, DeviceKind};
+use openlogi_core::hid::{Dpi, SmartShiftMode};
 use openlogi_ipc::{
-    ChargingEvent, ChargingPopup, ConnectionEvent, ConnectionPopup, Notice, NoticeKind,
+    ChargingEvent, ChargingPopup, ConnectionEvent, ConnectionPopup, DpiPopup, Notice, NoticeKind,
 };
 use openlogi_ui::action_icons::MaterialSymbolStyle;
 
 use crate::charging::charging_card;
 use crate::connection::{card_width, connection_card};
 use crate::notice::notice_card;
-use crate::osd::{CHARGING_HEIGHT, CHARGING_WIDTH};
+use crate::option_row::{self, OptionRow, option_card};
+use crate::osd::{CHARGING_HEIGHT, CHARGING_WIDTH, LOCK_HEIGHT};
 
 /// Width of the four-card rows, including the gaps between them.
 const BOARD_WIDTH: f32 = CHARGING_WIDTH * 4.0 + 16.0 * 3.0 + 48.0;
-const BOARD_HEIGHT: f32 = CHARGING_HEIGHT * 4.0 + 16.0 * 3.0 + 48.0;
+const BOARD_HEIGHT: f32 = CHARGING_HEIGHT * 4.0 + LOCK_HEIGHT * 2.0 + 16.0 * 5.0 + 48.0;
 
 /// Open the indicator cards on one backdrop and stay up until the process
 /// is closed.
@@ -76,6 +78,46 @@ fn connection_sample(
             status: BatteryStatus::Discharging,
         }),
     }
+}
+
+/// A DPI card for the preview's option rows.
+fn dpi_sample(dpi: u16, presets: &[u16]) -> DpiPopup {
+    DpiPopup::Preset {
+        dpi: Dpi::new(dpi),
+        presets: presets.iter().copied().map(Dpi::new).collect(),
+    }
+}
+
+/// One preview row of option cards, each as wide as its text.
+fn option_cards(cx: &gpui::App, rows: [OptionRow; 3]) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .gap(px(16.0))
+        .children(rows.map(|row| option_card(&row, option_row::card_width(cx, &row))))
+}
+
+/// The preview's last two rows: the wheel-mode, DPI and precision cards in
+/// each of their states.
+fn option_rows(cx: &gpui::App) -> [gpui::Div; 2] {
+    [
+        option_cards(
+            cx,
+            [
+                crate::wheel_mode::row(SmartShiftMode::Free),
+                crate::dpi::row(&dpi_sample(1600, &[800, 1600, 3200, 6400])),
+                crate::dpi::row(&DpiPopup::Precision { engaged: true }),
+            ],
+        ),
+        option_cards(
+            cx,
+            [
+                crate::wheel_mode::row(SmartShiftMode::Ratchet),
+                crate::dpi::row(&dpi_sample(1000, &[])),
+                crate::dpi::row(&DpiPopup::Precision { engaged: false }),
+            ],
+        ),
+    ]
 }
 
 fn board_options() -> WindowOptions {
@@ -186,5 +228,6 @@ impl Render for Board {
                     .map(|sample| connection_card(&sample, style, card_width(cx, &sample))),
                 ),
             )
+            .children(option_rows(cx))
     }
 }

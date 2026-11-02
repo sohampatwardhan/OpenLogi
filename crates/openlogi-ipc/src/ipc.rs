@@ -23,7 +23,7 @@ use openlogi_core::hid::{
     BacklightChange, BacklightEffect, BacklightState, DeviceRoute, DisableKeysMask,
     DisableKeysState, Dpi, DpiInfo, EasySwitchHosts, FnLockState, ForceSensingInfo, LightCommand,
     OnboardState, PairingError, PasskeyMethod, PointerSpeed, ReceiverSelector, ReportRate,
-    ReportRateInfo, ScrollWheelMode, SmartShiftStatus, WriteError,
+    ReportRateInfo, ScrollWheelMode, SmartShiftMode, SmartShiftStatus, WriteError,
 };
 use serde::{Deserialize, Serialize};
 pub use succession::Identity;
@@ -195,6 +195,12 @@ pub use succession::Identity;
 ///      [`ConnectionPopup`] and [`ConnectionEvent`] appended — a device
 ///      connected or disconnected, for the overlay's transient indicator.
 ///      `ConnectionLink` names the way it reaches the host.
+///      `Agent::observe_wheel_mode` and [`WheelModeObservation`] appended —
+///      the SmartShift mode a mouse's wheel button or a bound Toggle
+///      SmartShift switched to, for the overlay's transient indicator.
+///      `Agent::observe_dpi`, [`DpiObservation`] and [`DpiPopup`] appended —
+///      the DPI a preset action set among the mouse's presets, or precision
+///      mode turning on or off, for the overlay's transient indicator.
 pub const PROTOCOL_VERSION: u32 = 44;
 
 /// Environment variable through which the agent hands a supervised helper the
@@ -857,6 +863,59 @@ pub struct ConnectionObservation {
     pub language: Option<String>,
 }
 
+/// The transient wheel-mode indicator: the SmartShift mode a mouse's wheel
+/// just switched to, or none once the indicator's time is up.
+///
+/// Its own cell, as [`ChargingObservation`] is. The agent decides which
+/// switches count: the mouse's own wheel button and a bound Toggle
+/// SmartShift do; a mode the settings app writes, or one replayed on
+/// connect, does not.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WheelModeObservation {
+    /// See [`Generation`]. Pass it back to the next [`Agent::observe_wheel_mode`].
+    pub generation: Generation,
+    /// The mode to show, or `None` once the indicator has ended.
+    pub shown: Option<SmartShiftMode>,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale.
+    pub language: Option<String>,
+}
+
+/// What the DPI indicator shows.
+///
+/// Variants are append-only because this enum crosses bincode IPC.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DpiPopup {
+    /// A DPI preset action set the sensor to `dpi`.
+    Preset {
+        /// The DPI the mouse now uses.
+        dpi: Dpi,
+        /// The mouse's DPI presets in cycle order, `dpi` among them. Empty
+        /// when the presets are unknown; the overlay then names only `dpi`.
+        presets: Vec<Dpi>,
+    },
+    /// Precision mode turned on or off.
+    Precision {
+        /// Whether precision mode is now on.
+        engaged: bool,
+    },
+}
+
+/// The transient DPI indicator: the popup the agent is showing, or none once
+/// its time is up.
+///
+/// Its own cell, as [`ChargingObservation`] is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DpiObservation {
+    /// See [`Generation`]. Pass it back to the next [`Agent::observe_dpi`].
+    pub generation: Generation,
+    /// The popup to show, or `None` once it has ended.
+    pub shown: Option<DpiPopup>,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale.
+    pub language: Option<String>,
+}
+
 /// What a notice tells the user.
 ///
 /// Variants are append-only because this enum crosses bincode IPC.
@@ -1228,4 +1287,19 @@ pub trait Agent {
     /// Appended. The devices seen at agent startup and on a system resume
     /// are a baseline, not changes.
     async fn observe_connection(since: Generation) -> ConnectionObservation;
+
+    /// Long-poll the wheel-mode indicator. Answers as soon as it differs
+    /// from generation `since`, or with the unchanged indicator after
+    /// [`OBSERVE_HOLD`]. Pass `0` to read the current indicator at once.
+    ///
+    /// Appended after [`Self::observe_connection`]. The mode a mouse has when
+    /// it connects is a baseline, not a change.
+    async fn observe_wheel_mode(since: Generation) -> WheelModeObservation;
+
+    /// Long-poll the DPI indicator. Answers as soon as it differs from
+    /// generation `since`, or with the unchanged indicator after
+    /// [`OBSERVE_HOLD`]. Pass `0` to read the current indicator at once.
+    ///
+    /// Appended after [`Self::observe_wheel_mode`].
+    async fn observe_dpi(since: Generation) -> DpiObservation;
 }

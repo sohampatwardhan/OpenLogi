@@ -101,6 +101,7 @@ pub(crate) use report_rate::set_report_rate_on_channel;
 pub use report_rate::{
     get_report_rate_info, get_report_rate_info_on, set_report_rate, set_report_rate_on,
 };
+pub(crate) use smartshift::wheel_mode_to_smartshift;
 pub use smartshift::{
     get_smartshift_status, get_smartshift_status_on, set_smartshift, set_smartshift_on,
     set_smartshift_sensitivity, set_smartshift_torque, toggle_smartshift, toggle_smartshift_on,

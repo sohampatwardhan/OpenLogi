@@ -58,12 +58,12 @@ use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, ActionRingPresentation, AgentRequest,
     AgentResponse, AgentSnapshot, AgentStatus, BacklightEffectObservation, BacklightObservation,
     ChargingEvent, ChargingObservation, ChargingPopup, ChosenLight, ClientKind, ConfigReloadError,
-    ConnectionEvent, ConnectionObservation, ConnectionPopup, FlowLinkState, FlowPeerStatus,
-    FlowStatus, ForegroundApps, FoundDevice, Identity, InventoryHealth, LockKeyChange,
-    LockKeyObservation, MonitorEvent, Notice, NoticeKind, NoticeObservation, Observation,
-    ObservedLight, PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase,
-    PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict, SecureInput,
-    UiChromeObservation, VirtualKeyboardStatus,
+    ConnectionEvent, ConnectionObservation, ConnectionPopup, DpiObservation, DpiPopup,
+    FlowLinkState, FlowPeerStatus, FlowStatus, ForegroundApps, FoundDevice, Identity,
+    InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, Notice, NoticeKind,
+    NoticeObservation, Observation, ObservedLight, PROTOCOL_VERSION, PairingCommandError,
+    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
+    SecureInput, UiChromeObservation, VirtualKeyboardStatus, WheelModeObservation,
 };
 use succession::{Compat, Run};
 
@@ -574,6 +574,78 @@ fn connection_indicator() {
     ] {
         assert_wire(&link, golden);
     }
+}
+
+#[test]
+fn wheel_mode_indicator() {
+    assert_wire(&AgentRequest::ObserveWheelMode { since: 4 }, "3604");
+    assert_wire(
+        &WheelModeObservation {
+            generation: 2,
+            shown: Some(SmartShiftMode::Ratchet),
+            language: Some("de".into()),
+        },
+        "02010101026465",
+    );
+    assert_wire(
+        &WheelModeObservation {
+            generation: 3,
+            shown: Some(SmartShiftMode::Free),
+            language: None,
+        },
+        "03010000",
+    );
+    assert_wire(
+        &WheelModeObservation {
+            generation: 4,
+            shown: None,
+            language: None,
+        },
+        "040000",
+    );
+}
+
+#[test]
+fn dpi_indicator() {
+    assert_wire(&AgentRequest::ObserveDpi { since: 4 }, "3704");
+    assert_wire(
+        &DpiObservation {
+            generation: 2,
+            shown: Some(DpiPopup::Preset {
+                dpi: Dpi::new(1600),
+                presets: vec![Dpi::new(800), Dpi::new(1600)],
+            }),
+            language: Some("de".into()),
+        },
+        "020100fb400602fb2003fb400601026465",
+    );
+    assert_wire(
+        &DpiObservation {
+            generation: 3,
+            shown: Some(DpiPopup::Preset {
+                dpi: Dpi::new(800),
+                presets: Vec::new(),
+            }),
+            language: None,
+        },
+        "030100fb20030000",
+    );
+    assert_wire(
+        &DpiObservation {
+            generation: 4,
+            shown: Some(DpiPopup::Precision { engaged: true }),
+            language: None,
+        },
+        "0401010100",
+    );
+    assert_wire(
+        &DpiObservation {
+            generation: 5,
+            shown: None,
+            language: None,
+        },
+        "050000",
+    );
 }
 
 /// A chord crosses the wire as its modifier bits and the key's HID usage.

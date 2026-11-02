@@ -15,7 +15,7 @@ use futures_lite::StreamExt as _;
 use openlogi_core::device::{DeviceInventory, StandaloneDevice};
 use openlogi_core::hid::BacklightEffect;
 use openlogi_hid::inventory::events::{
-    BacklightUpdate, BatteryUpdate, HidppEventSource, LockKeyUpdate,
+    BacklightUpdate, BatteryUpdate, HidppEventSource, LockKeyUpdate, WheelModeUpdate,
 };
 use openlogi_hid::{ChannelRegistry, DeviceIoGate};
 use openlogi_ipc::LockKeyChange;
@@ -92,6 +92,9 @@ pub enum InventoryEvent {
     /// notice at once; the reconciliation the broadcast also requested
     /// follows as the fallback.
     BatteryChanged(BatteryUpdate),
+    /// A mouse's SmartShift mode, read when it connected or after its wheel
+    /// broadcast a ratchet switch. It reaches the wheel-mode popup.
+    WheelModeRead(WheelModeUpdate),
     /// A device reconnected without any reconciliation observing it offline:
     /// its `WirelessDeviceStatus` feature (`0x1d4b`) broadcast a reconnection
     /// — the firmware explicitly asking the host to reconfigure it after a
@@ -363,6 +366,7 @@ async fn run_watcher(
     let backlight_events = hid_events.backlights();
     let lock_key_events = hid_events.take_lock_keys();
     let battery_events = hid_events.take_batteries();
+    let wheel_mode_events = hid_events.take_wheel_modes();
     let mut enumerator = hardware.enumerator().with_event_notifier(event_notifier);
     if let Some(registry) = registry {
         enumerator = enumerator.with_registry(registry);
@@ -385,6 +389,8 @@ async fn run_watcher(
     let lock_key_tx = events.clone();
     let battery_io = device_io.clone();
     let battery_tx = events.clone();
+    let wheel_mode_io = device_io.clone();
+    let wheel_mode_tx = events.clone();
     let mut worker = InventoryWorker {
         events,
         refresh_requests,
@@ -405,6 +411,33 @@ async fn run_watcher(
         () = forward_backlights(backlight_events, backlight_tx, backlight_io) => {}
         () = forward_lock_keys(lock_key_events, lock_key_tx, lock_key_io) => {}
         () = forward_batteries(battery_events, battery_tx, battery_io) => {}
+        () = forward_wheel_modes(wheel_mode_events, wheel_mode_tx, wheel_mode_io) => {}
+    }
+}
+
+/// Forward each SmartShift reading in the order the mice reported them.
+async fn forward_wheel_modes(
+    wheel_modes: Option<mpsc::Receiver<WheelModeUpdate>>,
+    events: mpsc::UnboundedSender<InventoryEvent>,
+    device_io: DeviceIoGate,
+) {
+    let Some(mut wheel_modes) = wheel_modes else {
+        // The single reader was taken elsewhere: leave the other arms running.
+        return pending().await;
+    };
+    while let Some(update) = wheel_modes.recv().await {
+        if !device_io.allows_io() {
+            continue;
+        }
+        debug!(
+            device_index = update.device_index,
+            mode = ?update.mode,
+            cause = ?update.cause,
+            "wheel-mode event forwarded"
+        );
+        if events.send(InventoryEvent::WheelModeRead(update)).is_err() {
+            return;
+        }
     }
 }
 

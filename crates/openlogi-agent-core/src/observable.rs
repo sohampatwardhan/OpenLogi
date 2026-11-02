@@ -18,7 +18,9 @@
 //! [`NoticeBoard`]: a notice comes and goes without moving the GUI's
 //! generation. The lock-key indicator has its own cell for the same reason,
 //! [`LockKeyIndicator`], the charging indicator has [`ChargingIndicator`],
-//! and the connection indicator has [`ConnectionIndicator`].
+//! the connection indicator has [`ConnectionIndicator`], the wheel-mode
+//! indicator has [`WheelModeIndicator`], and the DPI indicator has
+//! [`DpiIndicator`].
 
 use openlogi_core::app::ForegroundApp;
 use openlogi_core::brand::is_openlogi_foreground_id;
@@ -33,8 +35,10 @@ use tokio::sync::watch;
 
 use crate::charging::ChargingIndicator;
 use crate::connection::ConnectionIndicator;
+use crate::dpi_popup::DpiIndicator;
 use crate::lock_keys::LockKeyIndicator;
 use crate::notices::NoticeBoard;
+use crate::wheel_mode::WheelModeIndicator;
 
 /// The agent's observable state, and the notification that it changed.
 pub struct ObservableState {
@@ -43,6 +47,8 @@ pub struct ObservableState {
     lock_keys: LockKeyIndicator,
     charging: ChargingIndicator,
     connection: ConnectionIndicator,
+    wheel_mode: WheelModeIndicator,
+    dpi: DpiIndicator,
 }
 
 impl ObservableState {
@@ -93,6 +99,8 @@ impl ObservableState {
             lock_keys: LockKeyIndicator::default(),
             charging: ChargingIndicator::default(),
             connection: ConnectionIndicator::default(),
+            wheel_mode: WheelModeIndicator::default(),
+            dpi: DpiIndicator::default(),
         }
     }
 
@@ -118,6 +126,18 @@ impl ObservableState {
     #[must_use]
     pub fn connection(&self) -> &ConnectionIndicator {
         &self.connection
+    }
+
+    /// The wheel-mode indicator the overlay shows.
+    #[must_use]
+    pub fn wheel_mode(&self) -> &WheelModeIndicator {
+        &self.wheel_mode
+    }
+
+    /// The DPI indicator the overlay shows.
+    #[must_use]
+    pub fn dpi(&self) -> &DpiIndicator {
+        &self.dpi
     }
 
     /// Clone the whole current state.

@@ -279,6 +279,36 @@ fn connection_notifications_stay_on_unless_turned_off() {
 }
 
 #[test]
+fn wheel_mode_and_dpi_notifications_stay_on_unless_turned_off() {
+    let defaults = Config::default().app_settings;
+    assert!(defaults.wheel_mode_notifications);
+    assert!(defaults.dpi_notifications);
+
+    let predating: Config = toml::from_str(
+        r"
+            schema_version = 10
+            [app_settings]
+            connection_notifications = false
+        ",
+    )
+    .expect("config predating the wheel-mode and DPI settings loads");
+    assert!(predating.app_settings.wheel_mode_notifications);
+    assert!(predating.app_settings.dpi_notifications);
+
+    let mut cfg = Config::default();
+    cfg.app_settings.wheel_mode_notifications = false;
+    let read = write_and_read(&cfg).app_settings;
+    assert!(!read.wheel_mode_notifications);
+    assert!(read.dpi_notifications, "each popup has its own switch");
+
+    cfg.app_settings.wheel_mode_notifications = true;
+    cfg.app_settings.dpi_notifications = false;
+    let read = write_and_read(&cfg).app_settings;
+    assert!(read.wheel_mode_notifications);
+    assert!(!read.dpi_notifications);
+}
+
+#[test]
 fn desktop_switches_slide_unless_turned_off() {
     assert!(Config::default().app_settings.animate_desktop_switch);
 
