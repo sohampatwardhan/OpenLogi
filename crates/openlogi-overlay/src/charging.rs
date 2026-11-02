@@ -80,7 +80,7 @@ pub(crate) fn charge_fraction(percentage: Option<u8>) -> Option<f32> {
 
 fn glyph(popup: &ChargingPopup, style: MaterialSymbolStyle) -> &'static str {
     match popup.event {
-        ChargingEvent::Started => battery_charging_icon(popup.percentage.unwrap_or(0), style),
+        ChargingEvent::Started => battery_charging_icon(style),
         ChargingEvent::Full => battery_full_icon(style),
         ChargingEvent::Stopped => match popup.percentage {
             Some(percentage) => battery_level_icon(percentage, style),
@@ -308,14 +308,13 @@ mod tests {
         assert_eq!(glyph_colour(ChargingEvent::Stopped), osd::accent());
         assert_eq!(glyph_colour(ChargingEvent::Full), osd::accent());
         let rounded = MaterialSymbolStyle::Rounded;
-        assert_eq!(
-            glyph(&popup(ChargingEvent::Started, Some(15)), rounded),
-            battery_charging_icon(15, rounded)
-        );
-        assert_eq!(
-            glyph(&popup(ChargingEvent::Started, Some(100)), rounded),
-            battery_charging_icon(100, rounded)
-        );
+        for percentage in [Some(15), Some(100), None] {
+            assert_eq!(
+                glyph(&popup(ChargingEvent::Started, percentage), rounded),
+                battery_charging_icon(rounded),
+                "one charging glyph at {percentage:?}: the bar shows the charge"
+            );
+        }
         assert_eq!(
             glyph(&popup(ChargingEvent::Full, Some(100)), rounded),
             battery_full_icon(rounded)

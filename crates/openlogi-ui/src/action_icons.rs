@@ -80,20 +80,10 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/battery-android-6-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-6-sharp.svg"))),
     ("action-icons/battery-android-alert-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-rounded.svg"))),
     ("action-icons/battery-android-alert-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-alert-sharp.svg"))),
+    ("action-icons/battery-android-bolt-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-bolt-rounded.svg"))),
+    ("action-icons/battery-android-bolt-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-bolt-sharp.svg"))),
     ("action-icons/battery-android-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-rounded.svg"))),
     ("action-icons/battery-android-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-full-sharp.svg"))),
-    ("action-icons/battery-charging-20-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-20-2-rounded.svg"))),
-    ("action-icons/battery-charging-20-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-20-2-sharp.svg"))),
-    ("action-icons/battery-charging-30-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-30-2-rounded.svg"))),
-    ("action-icons/battery-charging-30-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-30-2-sharp.svg"))),
-    ("action-icons/battery-charging-50-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-50-2-rounded.svg"))),
-    ("action-icons/battery-charging-50-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-50-2-sharp.svg"))),
-    ("action-icons/battery-charging-60-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-60-2-rounded.svg"))),
-    ("action-icons/battery-charging-60-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-60-2-sharp.svg"))),
-    ("action-icons/battery-charging-80-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-80-2-rounded.svg"))),
-    ("action-icons/battery-charging-80-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-80-2-sharp.svg"))),
-    ("action-icons/battery-charging-full-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-rounded.svg"))),
-    ("action-icons/battery-charging-full-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-sharp.svg"))),
     ("action-icons/battery-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-rounded.svg"))),
     ("action-icons/battery-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-sharp.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
@@ -357,55 +347,13 @@ const BATTERY_LEVELS: [BatteryGlyph; 8] = [
     BATTERY_FULL,
 ];
 
-/// Charging glyphs. Each step is the highest threshold at or below the
-/// percentage; a reading under 20 stays on `battery-charging-20-2`.
-///
-/// Material Symbols has no `battery-charging-90-2` (rounded or sharp). The
-/// 80 step therefore covers 80..=99, and 100 is `battery-charging-full-2`.
-const BATTERY_CHARGING_STEPS: [(u8, BatteryGlyph); 6] = [
-    (
-        20,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-20-2-rounded.svg",
-            sharp: "action-icons/battery-charging-20-2-sharp.svg",
-        },
-    ),
-    (
-        30,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-30-2-rounded.svg",
-            sharp: "action-icons/battery-charging-30-2-sharp.svg",
-        },
-    ),
-    (
-        50,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-50-2-rounded.svg",
-            sharp: "action-icons/battery-charging-50-2-sharp.svg",
-        },
-    ),
-    (
-        60,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-60-2-rounded.svg",
-            sharp: "action-icons/battery-charging-60-2-sharp.svg",
-        },
-    ),
-    (
-        80,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-80-2-rounded.svg",
-            sharp: "action-icons/battery-charging-80-2-sharp.svg",
-        },
-    ),
-    (
-        100,
-        BatteryGlyph {
-            rounded: "action-icons/battery-charging-full-2-rounded.svg",
-            sharp: "action-icons/battery-charging-full-2-sharp.svg",
-        },
-    ),
-];
+/// The charging glyph: the Android battery body with a bolt, the family the
+/// discharging and full glyphs use, so every battery card draws one shape.
+/// The card's bar shows the charge, so the glyph does not step with it.
+const BATTERY_CHARGING: BatteryGlyph = BatteryGlyph {
+    rounded: "action-icons/battery-android-bolt-rounded.svg",
+    sharp: "action-icons/battery-android-bolt-sharp.svg",
+};
 
 /// The low-battery notice glyph for `style`.
 #[must_use]
@@ -427,22 +375,10 @@ pub fn battery_level_icon(percentage: u8, style: MaterialSymbolStyle) -> &'stati
     BATTERY_LEVELS[step].path(style)
 }
 
-/// The charging battery glyph for `percentage` (`0..=100`) in `style`.
-///
-/// The chosen step is the greatest of 20, 30, 50, 60, 80, and 100 that is
-/// still at or below `percentage`. Anything under 20 uses the 20 step.
-/// There is no 90 step: Material Symbols does not ship
-/// `battery-charging-90-2`, so 80 covers 80..=99.
+/// The charging battery glyph in `style`: `battery-android-bolt`.
 #[must_use]
-pub fn battery_charging_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
-    let percentage = percentage.min(100);
-    let mut icon = BATTERY_CHARGING_STEPS[0].1;
-    for (step, candidate) in BATTERY_CHARGING_STEPS {
-        if percentage >= step {
-            icon = candidate;
-        }
-    }
-    icon.path(style)
+pub fn battery_charging_icon(style: MaterialSymbolStyle) -> &'static str {
+    BATTERY_CHARGING.path(style)
 }
 
 /// Material Symbol for a backlight at the low end of its scale.
@@ -775,29 +711,12 @@ mod tests {
             level(88, "battery-android-full");
             level(100, "battery-android-full");
 
-            let charging = |percentage, name| {
-                assert_eq!(
-                    battery_charging_icon(percentage, style),
-                    format!("action-icons/{name}-{suffix}.svg"),
-                    "{percentage}% {suffix}"
-                );
-            };
-            charging(0, "battery-charging-20-2");
-            charging(19, "battery-charging-20-2");
-            charging(20, "battery-charging-20-2");
-            charging(29, "battery-charging-20-2");
-            charging(30, "battery-charging-30-2");
-            charging(49, "battery-charging-30-2");
-            charging(50, "battery-charging-50-2");
-            charging(59, "battery-charging-50-2");
-            charging(60, "battery-charging-60-2");
-            charging(79, "battery-charging-60-2");
-            // No battery-charging-90-2 exists, so 80 covers through 99.
-            charging(80, "battery-charging-80-2");
-            charging(89, "battery-charging-80-2");
-            charging(90, "battery-charging-80-2");
-            charging(99, "battery-charging-80-2");
-            charging(100, "battery-charging-full-2");
+            assert_eq!(
+                battery_charging_icon(style),
+                format!("action-icons/battery-android-bolt-{suffix}.svg"),
+                "charging stays in the Android battery family"
+            );
+            assert!(embedded_icon(battery_charging_icon(style)).is_some());
 
             assert_eq!(
                 battery_full_icon(style),
