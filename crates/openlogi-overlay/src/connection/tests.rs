@@ -136,7 +136,7 @@ fn the_card_widens_to_fit_the_whole_name() {
         ..short
     };
     let needed =
-        PAD * 2.0 + 160.0 + ROW_GAP + 80.0 + ROW_GAP + ICON + ROW_GAP + 36.0 + CHARGE_GAP + ICON;
+        PAD * 2.0 + 160.0 + ROW_GAP + ICON + LABEL_GAP + 80.0 + ROW_GAP + ICON + LABEL_GAP + 36.0;
     assert!(
         fit_width(long) >= needed,
         "{} must hold the name, status, link, charge and battery ({needed})",
@@ -183,4 +183,20 @@ fn a_measured_name_is_wider_than_nothing(cx: &mut gpui::TestAppContext) {
         (osd::CONNECTION_WIDTH..=MAX_WIDTH).contains(&width),
         "{width}"
     );
+}
+
+#[test]
+fn the_bolt_mark_takes_its_brand_green_and_other_links_the_accent() {
+    assert_eq!(
+        link_colour(ConnectionLink::Bolt),
+        openlogi_ui::color::bolt()
+    );
+    for link in [
+        ConnectionLink::Bluetooth,
+        ConnectionLink::Unifying,
+        ConnectionLink::Lightspeed,
+        ConnectionLink::Usb,
+    ] {
+        assert_eq!(link_colour(link), osd::accent(), "{link:?}");
+    }
 }

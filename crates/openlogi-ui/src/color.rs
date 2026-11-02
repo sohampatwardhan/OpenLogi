@@ -24,6 +24,17 @@ pub fn accent() -> Hsla {
     rgb(ACCENT_BLUE).into()
 }
 
+/// The Logi Bolt green the receiver mark is drawn in, wherever either GPUI
+/// process shows a Bolt link: the settings app's device cards and the
+/// overlay's connection popup.
+pub const BOLT_GREEN: u32 = 0x0022_c55e;
+
+/// [`BOLT_GREEN`] as an [`Hsla`].
+#[must_use]
+pub fn bolt() -> Hsla {
+    rgb(BOLT_GREEN).into()
+}
+
 /// The accent at a different lightness, keeping its hue and saturation.
 ///
 /// The overlay draws its ring on a near-black panel, where the brand lightness
