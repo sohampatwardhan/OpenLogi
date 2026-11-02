@@ -35,6 +35,17 @@ pub fn bolt() -> Hsla {
     rgb(BOLT_GREEN).into()
 }
 
+/// The Unifying orange the receiver's star is drawn in, sampled from the
+/// Unifying logo on Logitech's support site. Used wherever either GPUI
+/// process shows a Unifying link.
+pub const UNIFYING_ORANGE: u32 = 0x00f5_8629;
+
+/// [`UNIFYING_ORANGE`] as an [`Hsla`].
+#[must_use]
+pub fn unifying() -> Hsla {
+    rgb(UNIFYING_ORANGE).into()
+}
+
 /// The accent at a different lightness, keeping its hue and saturation.
 ///
 /// The overlay draws its ring on a near-black panel, where the brand lightness
