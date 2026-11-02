@@ -3,22 +3,15 @@
 //! The devices seen on the first inventory after the agent starts are a
 //! baseline, as are those on the first inventory after a system resume or a
 //! settings-confirmation replay. After that, a device that comes online is
-//! announced as connected on the first inventory that shows it.
+//! announced as connected, and one that goes offline or leaves the
+//! inventory as disconnected, on the first inventory that shows it.
 //!
-//! A device that goes offline is announced only once it has stayed away for
-//! [`DISCONNECT_GRACE`]. A Bolt or Unifying device reports offline whenever
-//! it falls asleep, and HID++ cannot tell that from one switched off, so
-//! announcing every drop would put a card up each time the mouse idles. A
-//! device back before the grace ends was never announced as gone, and its
-//! return is not announced either.
-//!
-//! There is one card. A disconnect and then a reconnect before the card
-//! ends updates that card to the latest state and restarts its time, rather
-//! than queueing a second card.
+//! There is one card. A quick flap — a disconnect and then a reconnect
+//! before the card ends — updates that card to the latest state and restarts
+//! its time, rather than queueing a second card.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
 
 use openlogi_core::config::AppSettings;
 use openlogi_core::device::{BatteryInfo, ConnectionLink, DeviceKind};
@@ -28,13 +21,6 @@ use openlogi_ipc::{
 use tokio::sync::watch;
 
 use crate::backlight_overlay::DISPLAY_LIFETIME;
-
-/// How long a device stays offline before its disconnect is announced.
-///
-/// Long enough to swallow a radio dropping and re-linking while the device
-/// dozes off, short enough that switching a device off still reads as
-/// immediate.
-pub const DISCONNECT_GRACE: Duration = Duration::from_secs(10);
 
 /// One device in the inventory, online or not, addressed by the key the
 /// agent already uses for it.
@@ -54,21 +40,10 @@ pub struct ConnectionSample {
     pub battery: Option<BatteryInfo>,
 }
 
-/// Where a device stands between passes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Presence {
-    /// Online on the last pass.
-    Online,
-    /// Offline since `since`, not yet announced.
-    Leaving { since: Instant },
-    /// Offline and announced as gone, or offline when first seen.
-    Away,
-}
-
 /// What the sessions remember of a device between passes.
 #[derive(Clone, Debug)]
 struct Known {
-    presence: Presence,
+    online: bool,
     name: Option<String>,
     kind: DeviceKind,
     link: ConnectionLink,
@@ -85,17 +60,9 @@ impl Known {
             battery: self.battery.clone(),
         }
     }
-
-    /// The device went offline at `now`. One already leaving keeps the time
-    /// it left.
-    fn leave(&mut self, now: Instant) {
-        if self.presence == Presence::Online {
-            self.presence = Presence::Leaving { since: now };
-        }
-    }
 }
 
-/// Per-device link state: whether each device is online, leaving, or away,
+/// Per-device link state: whether each device was online on the last pass,
 /// and the last name and battery it had.
 #[derive(Default)]
 pub struct ConnectionSessions {
@@ -113,27 +80,25 @@ impl ConnectionSessions {
         self.baselined = false;
     }
 
-    /// Take the devices in the inventory at `now`. Returns the disconnects
-    /// whose grace ran out by `now` (by id), then a connect for every device
-    /// that came back from away or appeared online (in inventory order);
-    /// empty on a baseline pass.
+    /// Take the devices in the inventory now. Returns a popup for every
+    /// device whose link moved since the last pass, in inventory order and
+    /// then departed devices by id; empty on a baseline pass.
     ///
-    /// A device that goes offline, or is missing from `samples`, starts
-    /// leaving; [`Self::due`] announces it once [`DISCONNECT_GRACE`] has
-    /// passed. It is remembered with its last battery, so it is announced
-    /// again when it returns.
-    pub fn note(&mut self, samples: &[ConnectionSample], now: Instant) -> Vec<ConnectionPopup> {
-        if !self.baselined {
-            self.baselined = true;
-            self.record_baseline(samples);
-            return Vec::new();
-        }
-        let mut popups = self.due(now);
+    /// A device first seen online after the baseline has connected. One that
+    /// is missing from `samples` has left; it is remembered as offline, with
+    /// its last battery, so it is announced again when it returns.
+    pub fn note(&mut self, samples: &[ConnectionSample]) -> Vec<ConnectionPopup> {
+        let announce = std::mem::replace(&mut self.baselined, true);
+        let mut popups = Vec::new();
         for sample in samples {
             let previous = self.devices.get(&sample.id);
-            let presence = previous.map(|known| known.presence);
-            let mut known = Known {
-                presence: presence.unwrap_or(Presence::Away),
+            let event = match (previous.map(|known| known.online), sample.online) {
+                (None | Some(false), true) => Some(ConnectionEvent::Connected),
+                (Some(true), false) => Some(ConnectionEvent::Disconnected),
+                _ => None,
+            };
+            let known = Known {
+                online: sample.online,
                 name: sample
                     .name
                     .clone()
@@ -145,90 +110,22 @@ impl ConnectionSessions {
                     .clone()
                     .or_else(|| previous.and_then(|known| known.battery.clone())),
             };
-            match (presence, sample.online) {
-                (None | Some(Presence::Away), true) => {
-                    known.presence = Presence::Online;
-                    popups.push(known.popup(ConnectionEvent::Connected));
-                }
-                // Back before the grace ran out: it was never announced as
-                // gone, so its return is no news either.
-                (Some(Presence::Leaving { .. }), true) => known.presence = Presence::Online,
-                (_, false) => known.leave(now),
-                (Some(Presence::Online), true) => {}
+            if let Some(event) = event {
+                popups.push(known.popup(event));
             }
             self.devices.insert(sample.id.clone(), known);
         }
-        for (id, known) in &mut self.devices {
-            if !samples.iter().any(|sample| &sample.id == id) {
-                known.leave(now);
-            }
-        }
-        popups
-    }
-
-    /// Announce every device whose grace ran out by `now`, by id, and mark
-    /// it away. Nothing while a baseline is pending: the baseline pass
-    /// settles a device that dropped across a resume without announcing it.
-    pub fn due(&mut self, now: Instant) -> Vec<ConnectionPopup> {
-        if !self.baselined {
-            return Vec::new();
-        }
-        let mut gone: Vec<(&String, &mut Known)> = self
+        let mut departed: Vec<(&String, &mut Known)> = self
             .devices
             .iter_mut()
-            .filter(|(_, known)| match known.presence {
-                Presence::Leaving { since } => now.duration_since(since) >= DISCONNECT_GRACE,
-                Presence::Online | Presence::Away => false,
-            })
+            .filter(|(id, known)| known.online && !samples.iter().any(|s| &s.id == *id))
             .collect();
-        gone.sort_by_key(|(id, _)| *id);
-        gone.into_iter()
-            .map(|(_, known)| {
-                known.presence = Presence::Away;
-                known.popup(ConnectionEvent::Disconnected)
-            })
-            .collect()
-    }
-
-    /// When the next leaving device's grace runs out, if any is leaving.
-    #[must_use]
-    pub fn next_due(&self) -> Option<Instant> {
-        self.devices
-            .values()
-            .filter_map(|known| match known.presence {
-                Presence::Leaving { since } => Some(since + DISCONNECT_GRACE),
-                Presence::Online | Presence::Away => None,
-            })
-            .min()
-    }
-
-    /// Record `samples` as they are, announcing nothing. A remembered device
-    /// missing from them is away.
-    fn record_baseline(&mut self, samples: &[ConnectionSample]) {
-        for known in self.devices.values_mut() {
-            known.presence = Presence::Away;
+        departed.sort_by_key(|(id, _)| *id);
+        for (_, known) in departed {
+            known.online = false;
+            popups.push(known.popup(ConnectionEvent::Disconnected));
         }
-        for sample in samples {
-            let previous = self.devices.get(&sample.id);
-            let known = Known {
-                presence: if sample.online {
-                    Presence::Online
-                } else {
-                    Presence::Away
-                },
-                name: sample
-                    .name
-                    .clone()
-                    .or_else(|| previous.and_then(|known| known.name.clone())),
-                kind: sample.kind,
-                link: sample.link,
-                battery: sample
-                    .battery
-                    .clone()
-                    .or_else(|| previous.and_then(|known| known.battery.clone())),
-            };
-            self.devices.insert(sample.id.clone(), known);
-        }
+        if announce { popups } else { Vec::new() }
     }
 }
 
@@ -236,9 +133,6 @@ struct Cell {
     sessions: ConnectionSessions,
     enabled: bool,
     language: Option<String>,
-    /// When the pending departure check fires, so each deadline spawns one
-    /// timer rather than one per inventory pass.
-    wake: Option<Instant>,
 }
 
 /// The connection popup the overlay shows, and the sessions that decide
@@ -261,7 +155,6 @@ impl Default for ConnectionIndicator {
                 sessions: ConnectionSessions::default(),
                 enabled: true,
                 language: None,
-                wake: None,
             })),
             published,
         }
@@ -269,14 +162,13 @@ impl Default for ConnectionIndicator {
 }
 
 impl ConnectionIndicator {
-    /// Record `samples` under `settings`. A connect is shown at once, and a
-    /// disconnect once [`DISCONNECT_GRACE`] has passed, unless the user
-    /// turned the popup off; the sessions still advance either way, so
-    /// turning it back on does not replay an old change. Several changes
-    /// show the last, in the one card.
+    /// Record `samples` under `settings`. A connect or disconnect is shown
+    /// at once, unless the user turned the popup off; the sessions still
+    /// advance either way, so turning it back on does not replay an old
+    /// change. Several changes on one pass show the last, in the one card.
     ///
-    /// Returns the popups this pass shows, in order; the last is the one
-    /// showing.
+    /// Returns the popups the changes produced while the popup is on, in
+    /// order; the last is the one showing.
     #[expect(
         clippy::must_use_candidate,
         reason = "showing the popup is the effect; the returned list only describes what was shown"
@@ -286,12 +178,20 @@ impl ConnectionIndicator {
         samples: &[ConnectionSample],
         settings: &AppSettings,
     ) -> Vec<ConnectionPopup> {
-        let now = now();
-        let mut cell = self.cell();
-        cell.enabled = settings.connection_notifications;
-        cell.language.clone_from(&settings.language);
-        let popups = cell.sessions.note(samples, now);
-        self.present(cell, popups)
+        let (popups, language) = {
+            let mut cell = self.cell();
+            cell.enabled = settings.connection_notifications;
+            cell.language.clone_from(&settings.language);
+            let popups = cell.sessions.note(samples);
+            if !cell.enabled {
+                return Vec::new();
+            }
+            (popups, cell.language.clone())
+        };
+        if let Some(last) = popups.last() {
+            self.show(last, language);
+        }
+        popups
     }
 
     /// Make the next [`Self::note`] a baseline, after a system resume or a
@@ -308,43 +208,6 @@ impl ConnectionIndicator {
             Ok(Ok(observation)) => observation.clone(),
             Ok(Err(_)) | Err(_) => self.published.borrow().clone(),
         }
-    }
-
-    /// Announce the disconnects whose grace has run out.
-    fn settle(&self) {
-        let mut cell = self.cell();
-        cell.wake = None;
-        let popups = cell.sessions.due(now());
-        self.present(cell, popups);
-    }
-
-    /// Show the last of `popups` when the popup is on, and arm the timer
-    /// for the next departure still in its grace. Returns what was shown.
-    fn present(
-        &self,
-        mut cell: MutexGuard<'_, Cell>,
-        popups: Vec<ConnectionPopup>,
-    ) -> Vec<ConnectionPopup> {
-        if let Some(at) = cell.sessions.next_due()
-            && cell.wake.is_none_or(|wake| at < wake)
-            && tokio::runtime::Handle::try_current().is_ok()
-        {
-            cell.wake = Some(at);
-            let indicator = self.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await;
-                indicator.settle();
-            });
-        }
-        if !cell.enabled {
-            return Vec::new();
-        }
-        let language = cell.language.clone();
-        drop(cell);
-        if let Some(last) = popups.last() {
-            self.show(last, language);
-        }
-        popups
     }
 
     /// Show `popup` in the one card, replacing whatever it showed, and end
@@ -381,12 +244,6 @@ impl ConnectionIndicator {
     fn cell(&self) -> MutexGuard<'_, Cell> {
         self.cell.lock().unwrap_or_else(PoisonError::into_inner)
     }
-}
-
-/// The current instant on Tokio's clock, so a paused test clock moves the
-/// grace along with the timer that ends it.
-fn now() -> Instant {
-    tokio::time::Instant::now().into_std()
 }
 
 #[cfg(test)]

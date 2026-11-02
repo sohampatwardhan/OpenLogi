@@ -876,9 +876,7 @@ async fn disconnect_and_connect_commands_show_the_connection_popup() {
         )
         .await
         .expect("disconnect");
-    assert!(gone.contains("Disconnected shows in"), "{gone}");
-    tokio::time::advance(openlogi_agent_core::connection::DISCONNECT_GRACE).await;
-    tokio::task::yield_now().await;
+    assert!(gone.contains("showing Disconnected"), "{gone}");
     let dropped = agent
         .clone()
         .observe_connection(tarpc::context::current(), before.generation)
@@ -920,5 +918,5 @@ async fn disconnect_and_connect_commands_show_the_connection_popup() {
         )
         .await
         .expect("disconnect while muted");
-    assert!(!muted.contains("Disconnected"), "{muted}");
+    assert!(!muted.contains("showing Disconnected"), "{muted}");
 }

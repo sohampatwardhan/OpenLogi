@@ -1,5 +1,5 @@
-//! Connection popups from inventory refreshes: baselines, immediate
-//! connects, and disconnects once their grace has run out.
+//! Connection popups from inventory refreshes: baselines, and immediate
+//! connects and disconnects.
 
 use std::sync::Arc;
 
@@ -8,7 +8,6 @@ use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, Connection
 use openlogi_ipc::ConnectionEvent;
 
 use super::direct_inventory;
-use crate::connection::DISCONNECT_GRACE;
 use crate::observable::ObservableState;
 use crate::orchestrator::Orchestrator;
 
@@ -31,12 +30,6 @@ fn inventory(online: bool, reading: Option<BatteryInfo>) -> openlogi_core::devic
 
 fn refresh(orch: &mut Orchestrator, online: bool, reading: Option<BatteryInfo>) {
     orch.refresh_inventory(&[inventory(online, reading)], &[], false);
-}
-
-/// Let a departure's grace run out and its timer announce it.
-async fn past_the_grace() {
-    tokio::time::advance(DISCONNECT_GRACE).await;
-    tokio::task::yield_now().await;
 }
 
 fn wired(config: Config) -> (Orchestrator, Arc<ObservableState>) {
@@ -64,7 +57,6 @@ async fn a_device_going_offline_and_back_shows_disconnected_then_connected() {
     refresh(&mut orch, true, Some(battery(80)));
 
     refresh(&mut orch, false, None);
-    past_the_grace().await;
     let dropped = observable.connection().observe(1).await;
     let popup = dropped.shown.clone().expect("disconnected");
     assert_eq!(popup.event, ConnectionEvent::Disconnected);
@@ -114,7 +106,6 @@ async fn a_resume_and_a_settings_confirmation_are_baselines() {
     );
 
     refresh(&mut orch, false, None);
-    past_the_grace().await;
     assert_eq!(
         observable
             .connection()
@@ -134,18 +125,6 @@ async fn the_popup_stays_off_when_the_user_turns_it_off() {
     let (mut orch, observable) = wired(config);
     refresh(&mut orch, true, Some(battery(80)));
     refresh(&mut orch, false, None);
-    past_the_grace().await;
     refresh(&mut orch, true, None);
-    assert!(observable.connection().observe(0).await.shown.is_none());
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_device_that_dozes_off_and_wakes_inside_the_grace_shows_nothing() {
-    let (mut orch, observable) = wired(Config::default());
-    refresh(&mut orch, true, Some(battery(80)));
-    refresh(&mut orch, false, None);
-    tokio::time::advance(DISCONNECT_GRACE / 2).await;
-    refresh(&mut orch, true, Some(battery(80)));
-    past_the_grace().await;
     assert!(observable.connection().observe(0).await.shown.is_none());
 }
