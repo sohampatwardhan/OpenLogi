@@ -203,3 +203,16 @@ fn the_receiver_marks_take_their_brand_colours_and_other_links_the_accent() {
         assert_eq!(link_colour(link), osd::accent(), "{link:?}");
     }
 }
+
+#[test]
+fn a_full_reading_is_green_in_percent_or_level() {
+    assert!(osd::is_full_reading(Some(100), BatteryLevel::Good));
+    assert!(!osd::is_full_reading(Some(99), BatteryLevel::Full));
+    assert!(osd::is_full_reading(None, BatteryLevel::Full));
+    assert!(!osd::is_full_reading(None, BatteryLevel::Good));
+    assert_eq!(
+        osd::battery_colour(true),
+        openlogi_ui::color::status_green()
+    );
+    assert_eq!(osd::battery_colour(false), osd::accent());
+}

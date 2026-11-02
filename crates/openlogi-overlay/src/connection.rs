@@ -169,11 +169,7 @@ fn labelled(icon: gpui::Svg, text: gpui::Div) -> gpui::Div {
         .child(text)
 }
 
-fn glyph(path: &'static str) -> gpui::Svg {
-    tinted(path, osd::accent())
-}
-
-fn tinted(path: &'static str, colour: Hsla) -> gpui::Svg {
+fn glyph(path: &'static str, colour: Hsla) -> gpui::Svg {
     svg()
         .path(path)
         .size(px(ICON))
@@ -214,7 +210,7 @@ pub(crate) fn connection_card(
         .gap(px(ROW_GAP));
     if popup.event == ConnectionEvent::Connected {
         status_row = status_row.child(labelled(
-            tinted(
+            glyph(
                 connection_link_icon(popup.link, style),
                 link_colour(popup.link),
             ),
@@ -222,7 +218,10 @@ pub(crate) fn connection_card(
         ));
         if let (Some(battery), Some(charge)) = (popup.battery.as_ref(), charge) {
             status_row = status_row.child(labelled(
-                glyph(battery_glyph(battery, style)),
+                glyph(
+                    battery_glyph(battery, style),
+                    osd::battery_colour(osd::is_full_reading(battery.percentage, battery.level)),
+                ),
                 div()
                     .whitespace_nowrap()
                     .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
