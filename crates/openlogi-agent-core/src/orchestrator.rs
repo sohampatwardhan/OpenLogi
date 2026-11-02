@@ -23,8 +23,8 @@ use openlogi_core::config::{
     AppSettings, Config, ConfigRevision, LightSettings, MouseProfileTarget, canonical_device_key,
 };
 use openlogi_core::device::{
-    BatteryInfo, Capabilities, ChangedOnLight, DeviceInventory, DeviceKind, LightCapabilities,
-    LightState, StandaloneDevice, prettify_codename,
+    BatteryInfo, Capabilities, ChangedOnLight, ConnectionLink, DeviceInventory, DeviceKind,
+    LightCapabilities, LightState, StandaloneDevice, prettify_codename,
 };
 use openlogi_core::device_order::{DeviceIdentity, DeviceStableId, PhysicalDeviceKey};
 use openlogi_hid::{
@@ -45,6 +45,7 @@ use crate::capture_plan::{
     hidpp_side_gesture_maps_for, plan_for_device, shift_bindings_for,
 };
 use crate::charging::ChargingSample;
+use crate::connection::ConnectionSample;
 use crate::flow::{FlowController, InventoryDevice};
 use crate::hardware::{
     DeviceAccess, DeviceOp, HardwareContext, KeptOsLayouts, VolatileMouseSettings, WriteOrder,
@@ -110,6 +111,9 @@ struct AgentDevice {
     codename: Option<String>,
     /// The device's latest battery reading, `None` when it has none.
     battery: Option<BatteryInfo>,
+    /// How the device reaches the host, for its connection popup. `None`
+    /// for a standalone device, which has no popup.
+    link: Option<ConnectionLink>,
 }
 
 impl AgentDevice {
@@ -1425,6 +1429,11 @@ impl Orchestrator {
         }
         self.announce_low_batteries(&devices);
         self.note_charging(&devices);
+        if confirm_reapply {
+            // A pass that replays settings is not a link change.
+            self.observable.connection().rebaseline();
+        }
+        self.note_connections(&devices);
         // Before any cookie plan below: a keyboard that goes to sleep or
         // leaves later keeps its byte for the clears and links that name it.
         self.follower_cookies().remember_leads(&devices);
@@ -1679,11 +1688,7 @@ impl Orchestrator {
             .filter(|device| device.online)
             .map(|device| ChargingSample {
                 id: device.config_key.clone(),
-                name: self
-                    .config
-                    .device_custom_name(&device.config_key)
-                    .map(str::to_owned)
-                    .or_else(|| device.codename.as_deref().map(prettify_codename)),
+                name: self.device_display_name(device),
                 kind: device.kind,
                 battery: device.battery.clone(),
             })
@@ -1691,6 +1696,38 @@ impl Orchestrator {
         self.observable
             .charging()
             .note(&samples, &self.config.app_settings);
+    }
+
+    /// Record each device's link. The first inventory after startup, a
+    /// system resume, or a settings replay is a baseline; after that a
+    /// device coming online or going offline is shown on the overlay at
+    /// once unless the user turned that popup off. A standalone device has
+    /// no link and no popup.
+    fn note_connections(&self, devices: &[AgentDevice]) {
+        let samples = devices
+            .iter()
+            .filter_map(|device| {
+                Some(ConnectionSample {
+                    id: device.config_key.clone(),
+                    name: self.device_display_name(device),
+                    kind: device.kind,
+                    link: device.link?,
+                    online: device.online,
+                    battery: device.battery.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        self.observable
+            .connection()
+            .note(&samples, &self.config.app_settings);
+    }
+
+    /// The user's name for `device`, else its tidied codename.
+    fn device_display_name(&self, device: &AgentDevice) -> Option<String> {
+        self.config
+            .device_custom_name(&device.config_key)
+            .map(str::to_owned)
+            .or_else(|| device.codename.as_deref().map(prettify_codename))
     }
 
     /// Advance only the captures whose own online transition requires it.
@@ -1750,6 +1787,8 @@ impl Orchestrator {
     /// identical; retain this intent until an authoritative refresh arrives.
     pub fn reapply_after_system_resume(&mut self) {
         self.forced_capture_rearm = true;
+        // Devices that dropped and returned across the sleep are not news.
+        self.observable.connection().rebaseline();
         self.reapply_volatile_on_next_refresh();
     }
 

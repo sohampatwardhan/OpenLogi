@@ -17,7 +17,8 @@
 //! The overlay's notices ride beside the snapshot in a cell of their own,
 //! [`NoticeBoard`]: a notice comes and goes without moving the GUI's
 //! generation. The lock-key indicator has its own cell for the same reason,
-//! [`LockKeyIndicator`], and the charging indicator has [`ChargingIndicator`].
+//! [`LockKeyIndicator`], the charging indicator has [`ChargingIndicator`],
+//! and the connection indicator has [`ConnectionIndicator`].
 
 use openlogi_core::app::ForegroundApp;
 use openlogi_core::brand::is_openlogi_foreground_id;
@@ -31,6 +32,7 @@ use openlogi_ipc::{
 use tokio::sync::watch;
 
 use crate::charging::ChargingIndicator;
+use crate::connection::ConnectionIndicator;
 use crate::lock_keys::LockKeyIndicator;
 use crate::notices::NoticeBoard;
 
@@ -40,6 +42,7 @@ pub struct ObservableState {
     notices: NoticeBoard,
     lock_keys: LockKeyIndicator,
     charging: ChargingIndicator,
+    connection: ConnectionIndicator,
 }
 
 impl ObservableState {
@@ -89,6 +92,7 @@ impl ObservableState {
             notices: NoticeBoard::default(),
             lock_keys: LockKeyIndicator::default(),
             charging: ChargingIndicator::default(),
+            connection: ConnectionIndicator::default(),
         }
     }
 
@@ -108,6 +112,12 @@ impl ObservableState {
     #[must_use]
     pub fn charging(&self) -> &ChargingIndicator {
         &self.charging
+    }
+
+    /// The connection indicator the overlay shows.
+    #[must_use]
+    pub fn connection(&self) -> &ConnectionIndicator {
+        &self.connection
     }
 
     /// Clone the whole current state.

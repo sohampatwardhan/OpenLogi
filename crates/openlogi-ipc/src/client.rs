@@ -34,8 +34,8 @@ use tarpc::context::{self, Context};
 
 use crate::{
     AgentClient, BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    Generation, LockKeyObservation, NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION,
-    RingObservation, UiChromeObservation, transport,
+    ConnectionObservation, Generation, LockKeyObservation, NoticeObservation, OBSERVE_HOLD,
+    Observation, PROTOCOL_VERSION, RingObservation, UiChromeObservation, transport,
 };
 
 /// Why a client could not be established.
@@ -252,6 +252,12 @@ impl Stamped for ChargingObservation {
     }
 }
 
+impl Stamped for ConnectionObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
 /// One connection's view of the agent's generation counter.
 ///
 /// Starts at 0 — "I have seen nothing" — so the first answer is the agent's
@@ -413,6 +419,17 @@ impl Observer<ChargingObservation> {
         Self::new(client, |client, since| {
             let client = client.clone();
             Box::pin(async move { client.observe_charging(observe_context(), since).await })
+        })
+    }
+}
+
+impl Observer<ConnectionObservation> {
+    /// Observe the transient connection indicator over `client`.
+    #[must_use]
+    pub fn connection(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move { client.observe_connection(observe_context(), since).await })
         })
     }
 }

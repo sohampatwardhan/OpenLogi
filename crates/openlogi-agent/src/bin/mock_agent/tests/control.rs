@@ -366,7 +366,7 @@ async fn an_offline_device_fails_reads_until_it_is_back_and_then_announces_its_b
         )
         .await
         .expect("brought online");
-    assert!(reply.ends_with("posted 1 low-battery notice(s)"), "{reply}");
+    assert!(reply.contains("posted 1 low-battery notice(s)"), "{reply}");
     assert!(observed(&agent, &mouse_route()).await.online);
     read_dpi(&agent).await.expect("an online device answers");
 }
@@ -829,4 +829,96 @@ fn charge_unplug_and_full_parse() {
             percentage: Some(100),
         })
     ));
+}
+
+#[test]
+fn connect_and_disconnect_name_a_device_and_disconnect_alone_closes_clients() {
+    assert_eq!(
+        parse("connect 2"),
+        Ok(Some(Command::Link {
+            device: 1,
+            online: true,
+        }))
+    );
+    assert_eq!(
+        parse("disconnect 1"),
+        Ok(Some(Command::Link {
+            device: 0,
+            online: false,
+        }))
+    );
+    assert_eq!(parse("disconnect"), Ok(Some(Command::Disconnect)));
+    for line in ["connect", "connect x", "disconnect 0", "disconnect 1 2"] {
+        assert!(parse(line).is_err(), "{line:?}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn disconnect_and_connect_commands_show_the_connection_popup() {
+    let agent = MockAgent::new(test_state());
+    let mouse = position_of(&agent, &mouse_route()).await;
+    let before = agent
+        .clone()
+        .observe_connection(tarpc::context::current(), 0)
+        .await;
+    assert!(
+        before.shown.is_none(),
+        "the profile's devices are the baseline, not a popup"
+    );
+
+    let gone = agent
+        .apply(
+            Command::Link {
+                device: mouse,
+                online: false,
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("disconnect");
+    assert!(gone.contains("Disconnected shows in"), "{gone}");
+    tokio::time::advance(openlogi_agent_core::connection::DISCONNECT_GRACE).await;
+    tokio::task::yield_now().await;
+    let dropped = agent
+        .clone()
+        .observe_connection(tarpc::context::current(), before.generation)
+        .await;
+    let popup = dropped.shown.expect("disconnected");
+    assert_eq!(popup.event, openlogi_ipc::ConnectionEvent::Disconnected);
+
+    let back = agent
+        .apply(
+            Command::Link {
+                device: mouse,
+                online: true,
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("connect");
+    assert!(back.contains("showing Connected"), "{back}");
+    let connected = agent
+        .clone()
+        .observe_connection(tarpc::context::current(), dropped.generation)
+        .await;
+    assert_eq!(
+        connected.shown.expect("connected").event,
+        openlogi_ipc::ConnectionEvent::Connected
+    );
+
+    let quiet = AppSettings {
+        connection_notifications: false,
+        ..AppSettings::default()
+    };
+    let muted = agent
+        .apply(
+            Command::Link {
+                device: mouse,
+                online: false,
+            },
+            &quiet,
+        )
+        .await
+        .expect("disconnect while muted");
+    assert!(!muted.contains("Disconnected"), "{muted}");
 }

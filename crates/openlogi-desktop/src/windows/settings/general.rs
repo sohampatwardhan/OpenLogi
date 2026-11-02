@@ -102,7 +102,8 @@ pub(super) fn general_page(
             LowBatteryThreshold::DEFAULT,
         ))
         .item(lock_key_notifications_item())
-        .item(charging_notifications_item());
+        .item(charging_notifications_item())
+        .item(connection_notifications_item());
 
     // Momentum scrolling's app-wide default. A mouse can set its own on its
     // Pointer tab; the card counts those.
@@ -207,6 +208,20 @@ fn charging_notifications_item() -> SettingItem {
         ),
     )
     .description(tr!("app.charging_notifications_description"))
+}
+
+/// The switch for the overlay's connection indicator.
+fn connection_notifications_item() -> SettingItem {
+    SettingItem::new(
+        tr!("app.connection_notifications"),
+        SettingField::switch(
+            |cx| AppState::try_read(cx).is_some_and(|s| s.app_settings().connection_notifications),
+            |enabled, cx| {
+                AppState::apply(cx, |state| state.commit_connection_notifications(enabled));
+            },
+        ),
+    )
+    .description(tr!("app.connection_notifications_description"))
 }
 
 /// The switch for the overlay's lock-key indicator.

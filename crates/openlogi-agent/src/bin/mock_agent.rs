@@ -51,6 +51,7 @@ use futures::StreamExt as _;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use openlogi_agent_core::backlight_overlay::BacklightOverlayManager;
 use openlogi_agent_core::charging::{ChargingIndicator, ChargingSample};
+use openlogi_agent_core::connection::{ConnectionIndicator, ConnectionSample};
 use openlogi_agent_core::lock_keys::LockKeyIndicator;
 use openlogi_agent_core::notices::{LowBatteryWatch, NoticeBoard};
 use openlogi_agent_core::ui_chrome::UiChrome;
@@ -58,8 +59,8 @@ use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::ActionRingSlot;
 use openlogi_core::config::{AppSettings, Config, Lighting};
 use openlogi_core::device::{
-    BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, DeviceInventory, DeviceKind, LockKey,
-    PairedDevice, StandaloneDevice, prettify_codename,
+    BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, ConnectionLink, DeviceInventory,
+    DeviceKind, LockKey, PairedDevice, StandaloneDevice, prettify_codename,
 };
 use openlogi_core::hid::{DisableKeysMask, DisableKeysState, HidppOperation};
 use openlogi_core::single_instance::{self, InstanceError, Role};
@@ -73,8 +74,8 @@ use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
     BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    ConfigReloadError, FlowStatus, ForegroundApps, FoundDevice, Generation, Identity,
-    InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, NoticeKind,
+    ConfigReloadError, ConnectionObservation, FlowStatus, ForegroundApps, FoundDevice, Generation,
+    Identity, InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, NoticeKind,
     NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION, PairingCommandError,
     PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
 };
@@ -727,6 +728,21 @@ impl State {
             .collect()
     }
 
+    /// Every device, online or not, for the connection indicator.
+    fn connection_samples(&self) -> Vec<ConnectionSample> {
+        self.targets()
+            .into_iter()
+            .map(|target| ConnectionSample {
+                id: target.route.to_string(),
+                link: mock_link(&target.route),
+                name: target.name,
+                kind: target.kind,
+                online: target.online,
+                battery: target.battery,
+            })
+            .collect()
+    }
+
     /// The online flag of the device `route` names, wherever the profile or
     /// pairing keeps it.
     fn online_mut(&mut self, route: &DeviceRoute) -> Option<&mut bool> {
@@ -840,6 +856,22 @@ struct Target {
     paired: bool,
 }
 
+/// How the mock says a device reaches the host: its receiver's family, or
+/// for a direct device Bluetooth or USB by its product id.
+fn mock_link(route: &DeviceRoute) -> ConnectionLink {
+    match route {
+        DeviceRoute::Bolt { .. } => ConnectionLink::Bolt,
+        DeviceRoute::Unifying { .. } => ConnectionLink::Unifying,
+        DeviceRoute::Direct { product_id, .. } | DeviceRoute::RawHid { product_id, .. } => {
+            if product_id & 0xf000 == 0xb000 {
+                ConnectionLink::Bluetooth
+            } else {
+                ConnectionLink::Usb
+            }
+        }
+    }
+}
+
 fn profile_value<'a, T>(
     setting: &'a ProfileSetting<T>,
     route: &DeviceRoute,
@@ -940,6 +972,8 @@ struct MockAgent {
     ui_chrome: UiChrome,
     /// The charging indicator the overlay shows.
     charging: ChargingIndicator,
+    /// The connection indicator the overlay shows.
+    connection: ConnectionIndicator,
     /// Signalled by the console to close every open client connection. Each
     /// connection holds one receiver.
     disconnects: Arc<watch::Sender<()>>,
@@ -959,6 +993,10 @@ impl MockAgent {
         // The profile's batteries are the baseline, so the first console
         // command that changes a phase is a real transition.
         charging.note(&state.charging_samples(), &AppSettings::default());
+        // Likewise the profile's links: the first `connect` or
+        // `disconnect` is a real transition.
+        let connection = ConnectionIndicator::default();
+        connection.note(&state.connection_samples(), &AppSettings::default());
         Self {
             state: Arc::new(Mutex::new(state)),
             served: Arc::new(Mutex::new(served)),
@@ -967,6 +1005,7 @@ impl MockAgent {
             backlight: BacklightOverlayManager::default(),
             ui_chrome: UiChrome::from_setting(None),
             charging,
+            connection,
             disconnects: Arc::new(disconnects),
             settings: app_settings,
         }
@@ -1388,6 +1427,10 @@ impl Agent for MockAgent {
 
     async fn observe_charging(self, _: Context, since: Generation) -> ChargingObservation {
         self.charging.observe(since).await
+    }
+
+    async fn observe_connection(self, _: Context, since: Generation) -> ConnectionObservation {
+        self.connection.observe(since).await
     }
 
     async fn read_disable_keys(

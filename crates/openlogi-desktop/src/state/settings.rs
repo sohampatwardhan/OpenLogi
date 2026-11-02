@@ -431,6 +431,20 @@ impl AppState {
         self.persist_and_reload("charging notifications setting");
         StateEvent::SettingsChanged.into()
     }
+    /// Toggle the overlay's connection indicator and persist it. The agent
+    /// decides which transitions to show, so it reads the new value on
+    /// config reload; while off it shows nothing. An already-set value
+    /// writes nothing and is still reported; disk failures restore the
+    /// persisted value.
+    pub fn commit_connection_notifications(&mut self, enabled: bool) -> StateEvents {
+        if self.config.app_settings.connection_notifications == enabled {
+            return StateEvent::SettingsChanged.into();
+        }
+        self.config
+            .edit(|config| config.app_settings.connection_notifications = enabled);
+        self.persist_and_reload("connection notifications setting");
+        StateEvent::SettingsChanged.into()
+    }
     /// Toggle the overlay's lock-key indicator and persist it. The agent
     /// decides what the indicator shows, so it reads the new value on config
     /// reload; while off it shows nothing. An already-set value writes nothing

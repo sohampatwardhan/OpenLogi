@@ -23,6 +23,7 @@ devices                          number the devices the commands below address
 battery <n> <0-100> [charging]   report a paired device's battery
 battery <n> clear                report the profile's battery again
 online <n> | offline <n>         bring a device online or take it offline
+connect <n> | disconnect <n>     the same, named for the connection popup
 fail <n> unreachable|error       fail every read and write to an online device
 fail <n> clear                   answer reads and writes again
 lock caps|num|scroll on|off      a keyboard turns a lock key on or off
@@ -35,7 +36,7 @@ charge <n> [percent]             the device starts charging
 unplug <n> [percent]             the device is unplugged and discharging
 full <n> [percent]               the device is fully charged, still on power
 advance <seconds>                move frozen test time (--fixture runs only)
-disconnect                       close every client connection
+disconnect                       with no device, close every client connection
 help                             show this list";
 
 /// One console command.
@@ -52,7 +53,8 @@ pub(super) enum Command {
         device: usize,
         reading: Option<BatteryInfo>,
     },
-    /// Bring a device online or take it offline.
+    /// Bring a device online or take it offline: `online`/`connect` and
+    /// `offline`/`disconnect` with a device number.
     Link {
         /// Position in the [`Command::Devices`] listing, from 0.
         device: usize,
@@ -122,9 +124,18 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
         "help" | "?" => Command::Help,
         "devices" => Command::Devices,
         "battery" => parse_battery(&mut words)?,
-        "online" | "offline" => Command::Link {
+        "online" | "offline" | "connect" => Command::Link {
             device: parse_device(words.next())?,
-            online: verb == "online",
+            online: verb != "offline",
+        },
+        // `disconnect` alone closes the client connections, as it did
+        // before devices could be named.
+        "disconnect" => match words.next() {
+            None => Command::Disconnect,
+            device => Command::Link {
+                device: parse_device(device)?,
+                online: false,
+            },
         },
         "fail" => parse_fault(&mut words)?,
         "lock" => parse_lock_key(&mut words)?,
@@ -150,7 +161,6 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
                 .ok_or("advance needs a whole number of seconds")?;
             Command::Advance(Duration::from_secs(seconds))
         }
-        "disconnect" => Command::Disconnect,
         other => return Err(format!("unknown command `{other}`; type `help`")),
     };
     if let Some(extra) = words.next() {
@@ -303,21 +313,7 @@ impl MockAgent {
                 status,
                 percentage,
             } => self.power(device, status, percentage, settings).await,
-            Command::Link { device, online } => {
-                let route = {
-                    let mut state = self.state.lock().await;
-                    let route = target(&state, device)?.route;
-                    let flag = state
-                        .online_mut(&route)
-                        .ok_or_else(|| format!("{route} is not a profile device"))?;
-                    *flag = online;
-                    route
-                };
-                let posted = self.announce_low_batteries(settings).await;
-                let charging = self.note_charging(settings).await;
-                let link = if online { "online" } else { "offline" };
-                Ok(format!("{route}: {link}{posted}{charging}"))
-            }
+            Command::Link { device, online } => self.set_online(device, online, settings).await,
             Command::Fault { device, fault } => {
                 let mut state = self.state.lock().await;
                 let route = target(&state, device)?.route;
@@ -428,6 +424,47 @@ impl MockAgent {
         let shown = self.charging.note(&samples, settings);
         if let Some(popup) = shown.first() {
             return format!("; showing {:?}", popup.event);
+        }
+        String::new()
+    }
+
+    /// Bring the device at `device` online or take it offline, then let the
+    /// low-battery, charging, and connection indicators see the change.
+    async fn set_online(
+        &self,
+        device: usize,
+        online: bool,
+        settings: &AppSettings,
+    ) -> Result<String, String> {
+        let route = {
+            let mut state = self.state.lock().await;
+            let route = target(&state, device)?.route;
+            let flag = state
+                .online_mut(&route)
+                .ok_or_else(|| format!("{route} is not a profile device"))?;
+            *flag = online;
+            route
+        };
+        let posted = self.announce_low_batteries(settings).await;
+        let charging = self.note_charging(settings).await;
+        let mut connection = self.note_connections(settings).await;
+        if !online && connection.is_empty() && settings.connection_notifications {
+            connection = format!(
+                "; Disconnected shows in {}s unless it comes back",
+                openlogi_agent_core::connection::DISCONNECT_GRACE.as_secs()
+            );
+        }
+        let link = if online { "online" } else { "offline" };
+        Ok(format!("{route}: {link}{posted}{charging}{connection}"))
+    }
+
+    /// Feed every device's link to the connection indicator, as an
+    /// inventory refresh does. Answers a note for the reply when one moved.
+    async fn note_connections(&self, settings: &AppSettings) -> String {
+        let samples = self.state.lock().await.connection_samples();
+        let shown = self.connection.note(&samples, settings);
+        if let Some(popup) = shown.last() {
+            return format!("; showing {:?} over {:?}", popup.event, popup.link);
         }
         String::new()
     }
