@@ -32,9 +32,10 @@ use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
     BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    ConfigReloadError, Generation, Identity, LockKeyObservation, MonitorEvent, NoticeObservation,
-    Observation, PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingUpdate,
-    RingObservation, SavedConfig, SavedConfigVerdict, UiChromeObservation,
+    ConfigReloadError, ConnectionObservation, Generation, Identity, LockKeyObservation,
+    MonitorEvent, NoticeObservation, Observation, PROTOCOL_VERSION, PairingCommandError,
+    PairingFailure, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
+    UiChromeObservation,
 };
 use succession::Compat;
 
@@ -502,6 +503,10 @@ impl Agent for AgentServer {
 
     async fn observe_charging(self, _: Context, since: Generation) -> ChargingObservation {
         self.observable.charging().observe(since).await
+    }
+
+    async fn observe_connection(self, _: Context, since: Generation) -> ConnectionObservation {
+        self.observable.connection().observe(since).await
     }
 
     async fn next_pairing(self, _: Context) -> Option<PairingUpdate> {

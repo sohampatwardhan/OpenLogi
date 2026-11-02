@@ -38,6 +38,11 @@ pub(crate) const LOCK_HEIGHT: f32 = 72.0;
 pub(crate) const CHARGING_WIDTH: f32 = LOCK_WIDTH;
 pub(crate) const CHARGING_HEIGHT: f32 = 88.0;
 
+/// The connection card is one row, the lock-key card's size, in the same
+/// chrome.
+pub(crate) const CONNECTION_WIDTH: f32 = LOCK_WIDTH;
+pub(crate) const CONNECTION_HEIGHT: f32 = LOCK_HEIGHT;
+
 /// Level bar thickness, shared by the brightness and charging cards.
 pub(crate) const BAR_HEIGHT: f32 = 8.0;
 pub(crate) const BAR_RADIUS: f32 = 4.0;

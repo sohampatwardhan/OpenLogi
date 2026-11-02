@@ -40,9 +40,10 @@ use openlogi_core::config::{
     ConfigRevision, FlowPeerName, FlowPublicKey, Lighting, ScrollResolution,
 };
 use openlogi_core::device::{
-    BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, ChangedOnLight, DeviceInventory,
-    DeviceKind, DeviceModelInfo, DeviceTransports, LightCapabilities, LightState, LightValueRange,
-    LightValueUnit, LockKey, PairedDevice, RawDeviceAddress, ReceiverInfo, StandaloneDevice,
+    BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, ChangedOnLight, ConnectionLink,
+    DeviceInventory, DeviceKind, DeviceModelInfo, DeviceTransports, LightCapabilities, LightState,
+    LightValueRange, LightValueUnit, LockKey, PairedDevice, RawDeviceAddress, ReceiverInfo,
+    StandaloneDevice,
 };
 use openlogi_core::hid::{
     BacklightChange, BacklightControls, BacklightDuration, BacklightEffect, BacklightMode,
@@ -57,11 +58,12 @@ use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, ActionRingPresentation, AgentRequest,
     AgentResponse, AgentSnapshot, AgentStatus, BacklightEffectObservation, BacklightObservation,
     ChargingEvent, ChargingObservation, ChargingPopup, ChosenLight, ClientKind, ConfigReloadError,
-    FlowLinkState, FlowPeerStatus, FlowStatus, ForegroundApps, FoundDevice, Identity,
-    InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, Notice, NoticeKind,
-    NoticeObservation, Observation, ObservedLight, PROTOCOL_VERSION, PairingCommandError,
-    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
-    SecureInput, UiChromeObservation, VirtualKeyboardStatus,
+    ConnectionEvent, ConnectionObservation, ConnectionPopup, FlowLinkState, FlowPeerStatus,
+    FlowStatus, ForegroundApps, FoundDevice, Identity, InventoryHealth, LockKeyChange,
+    LockKeyObservation, MonitorEvent, Notice, NoticeKind, NoticeObservation, Observation,
+    ObservedLight, PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase,
+    PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict, SecureInput,
+    UiChromeObservation, VirtualKeyboardStatus,
 };
 use succession::{Compat, Run};
 
@@ -532,6 +534,46 @@ fn charging_indicator() {
         },
         "030000",
     );
+}
+
+#[test]
+fn connection_indicator() {
+    assert_wire(&AgentRequest::ObserveConnection { since: 4 }, "3504");
+    assert_wire(
+        &ConnectionObservation {
+            generation: 2,
+            shown: Some(ConnectionPopup {
+                name: Some("MX".into()),
+                kind: DeviceKind::Mouse,
+                event: ConnectionEvent::Disconnected,
+                link: ConnectionLink::Bolt,
+                battery: Some(BatteryInfo {
+                    percentage: Some(80),
+                    level: BatteryLevel::Good,
+                    status: BatteryStatus::Discharging,
+                }),
+            }),
+            language: Some("de".into()),
+        },
+        "020101024d58000101010150020001026465",
+    );
+    assert_wire(
+        &ConnectionObservation {
+            generation: 3,
+            shown: None,
+            language: None,
+        },
+        "030000",
+    );
+    for (link, golden) in [
+        (ConnectionLink::Bluetooth, "00"),
+        (ConnectionLink::Bolt, "01"),
+        (ConnectionLink::Unifying, "02"),
+        (ConnectionLink::Lightspeed, "03"),
+        (ConnectionLink::Usb, "04"),
+    ] {
+        assert_wire(&link, golden);
+    }
 }
 
 /// A chord crosses the wire as its modifier bits and the key's HID usage.

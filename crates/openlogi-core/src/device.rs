@@ -577,6 +577,64 @@ pub enum ModelTransport {
     Usb,
 }
 
+/// How a device reaches this computer right now, for the connection popup.
+///
+/// Variants are append-only because this enum crosses bincode IPC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConnectionLink {
+    /// Bluetooth, classic or Low Energy, with no receiver in between.
+    Bluetooth,
+    /// A Logi Bolt receiver.
+    Bolt,
+    /// A Unifying receiver, or a Nano receiver that speaks its protocol.
+    Unifying,
+    /// A Lightspeed gaming receiver.
+    Lightspeed,
+    /// A USB cable.
+    Usb,
+}
+
+impl ConnectionLink {
+    /// The link of the device in `slot` of `inventory`.
+    ///
+    /// A receiver slot takes the receiver's family. A device on the direct
+    /// slot is Bluetooth or USB by the transport its product id belongs to
+    /// ([`DeviceModelInfo::transport_for_product_id`]). When the model does
+    /// not say, a Logitech product id in `0xb000..=0xbfff` is Bluetooth and
+    /// any other is USB. `None` when the slot has no route.
+    #[must_use]
+    pub fn for_slot(inventory: &DeviceInventory, slot: u8) -> Option<Self> {
+        let route = DeviceRoute::for_slot(inventory, slot)?;
+        let receiver = inventory.receiver.product_id;
+        Some(match route {
+            DeviceRoute::Bolt { .. } => Self::Bolt,
+            DeviceRoute::Unifying { .. } => {
+                match crate::hid::find_receiver(inventory.receiver.vendor_id, receiver) {
+                    Some(found) if found.brand == crate::hid::ReceiverBrand::Lightspeed => {
+                        Self::Lightspeed
+                    }
+                    _ => Self::Unifying,
+                }
+            }
+            DeviceRoute::Direct { product_id, .. } => {
+                let transport = inventory
+                    .paired
+                    .iter()
+                    .find(|paired| paired.slot == slot)
+                    .and_then(|paired| paired.model_info.as_ref())
+                    .and_then(|model| model.transport_for_product_id(product_id));
+                match transport {
+                    Some(ModelTransport::Bluetooth | ModelTransport::Btle) => Self::Bluetooth,
+                    // Logitech's Bluetooth product ids sit in `0xbxxx`.
+                    None if product_id & 0xf000 == 0xb000 => Self::Bluetooth,
+                    Some(ModelTransport::Usb | ModelTransport::Equad) | None => Self::Usb,
+                }
+            }
+            DeviceRoute::RawHid { .. } => return None,
+        })
+    }
+}
+
 /// Mirror of hidpp's `DeviceTransport` bitfield — one bool per protocol the
 /// device firmware exposes. The shape is dictated by HID++ feature 0x0003;
 /// a state machine doesn't fit since a single device can announce multiple
@@ -738,8 +796,8 @@ pub struct DeviceInventory {
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, DeviceInventory, DeviceKind,
-        DeviceModelInfo, DeviceTransports, LightValueRange, LightValueUnit, LockKey,
+        BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, ConnectionLink, DeviceInventory,
+        DeviceKind, DeviceModelInfo, DeviceTransports, LightValueRange, LightValueUnit, LockKey,
         ModelTransport, PairedDevice, ReceiverInfo, prettify_codename,
     };
 
@@ -778,6 +836,41 @@ mod tests {
             );
             assert!(!low(battery(None, BatteryLevel::Critical, powered), 20));
         }
+    }
+
+    #[test]
+    fn the_connection_link_follows_the_receiver_family_or_the_direct_product() {
+        let mut bolt = inventory(1, Some(0x4082), 80);
+        assert_eq!(
+            ConnectionLink::for_slot(&bolt, 1),
+            Some(ConnectionLink::Bolt)
+        );
+        bolt.receiver.product_id = 0xc52b;
+        assert_eq!(
+            ConnectionLink::for_slot(&bolt, 1),
+            Some(ConnectionLink::Unifying)
+        );
+        bolt.receiver.product_id = 0xc539;
+        assert_eq!(
+            ConnectionLink::for_slot(&bolt, 1),
+            Some(ConnectionLink::Lightspeed)
+        );
+
+        let mut direct = inventory(crate::hid::DIRECT_DEVICE_INDEX, None, 80);
+        direct.receiver.unique_id = None;
+        direct.paired[0].model_info = None;
+        direct.receiver.product_id = 0xb023;
+        let slot = crate::hid::DIRECT_DEVICE_INDEX;
+        assert_eq!(
+            ConnectionLink::for_slot(&direct, slot),
+            Some(ConnectionLink::Bluetooth)
+        );
+        direct.receiver.product_id = 0xc548;
+        assert_eq!(
+            ConnectionLink::for_slot(&direct, slot),
+            Some(ConnectionLink::Usb)
+        );
+        assert_eq!(ConnectionLink::for_slot(&direct, 3), None);
     }
 
     #[test]

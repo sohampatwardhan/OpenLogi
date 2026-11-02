@@ -16,8 +16,8 @@ use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::{ActionRingIcon, ActionRingSlot};
 use openlogi_core::config::{ConfigRevision, FlowPeerName, FlowPublicKey, Lighting};
 use openlogi_core::device::{
-    BatteryInfo, BatteryLevel, ChangedOnLight, DeviceInventory, DeviceKind, LightState, LockKey,
-    StandaloneDevice,
+    BatteryInfo, BatteryLevel, ChangedOnLight, ConnectionLink, DeviceInventory, DeviceKind,
+    LightState, LockKey, StandaloneDevice,
 };
 use openlogi_core::hid::{
     BacklightChange, BacklightEffect, BacklightState, DeviceRoute, DisableKeysMask,
@@ -191,6 +191,10 @@ pub use succession::Identity;
 ///      `Agent::observe_charging`, [`ChargingObservation`], [`ChargingPopup`]
 ///      and [`ChargingEvent`] appended — a device's charging phase changed,
 ///      for the overlay's transient indicator.
+///      `Agent::observe_connection`, [`ConnectionObservation`],
+///      [`ConnectionPopup`] and [`ConnectionEvent`] appended — a device
+///      connected or disconnected, for the overlay's transient indicator.
+///      `ConnectionLink` names the way it reaches the host.
 pub const PROTOCOL_VERSION: u32 = 44;
 
 /// Environment variable through which the agent hands a supervised helper the
@@ -808,6 +812,51 @@ pub struct ChargingObservation {
     pub language: Option<String>,
 }
 
+/// Which way a device's link moved.
+///
+/// Variants are append-only because this enum crosses bincode IPC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionEvent {
+    /// The device came online: woke, was switched to this computer, or was
+    /// plugged in.
+    Connected,
+    /// The device went offline or left.
+    Disconnected,
+}
+
+/// One connection popup: the device, which way its link moved, how it
+/// reaches the host, and its battery then.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionPopup {
+    /// The user's name for the device, else the name it reports. `None`
+    /// when it has neither; the overlay names it by [`Self::kind`].
+    pub name: Option<String>,
+    /// The device's kind, for its glyph and that fallback name.
+    pub kind: DeviceKind,
+    /// The way the link moved.
+    pub event: ConnectionEvent,
+    /// How the device reaches the host.
+    pub link: ConnectionLink,
+    /// The latest reading, or the last known one for a device that has
+    /// gone. `None` when it never reported one.
+    pub battery: Option<BatteryInfo>,
+}
+
+/// The transient connection indicator: the popup the agent is showing, or
+/// none once its time is up.
+///
+/// Its own cell, as [`ChargingObservation`] is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionObservation {
+    /// See [`Generation`]. Pass it back to the next [`Agent::observe_connection`].
+    pub generation: Generation,
+    /// The popup to show, or `None` once it has ended.
+    pub shown: Option<ConnectionPopup>,
+    /// Configured UI locale, or `None` to follow the overlay host's system
+    /// locale.
+    pub language: Option<String>,
+}
+
 /// What a notice tells the user.
 ///
 /// Variants are append-only because this enum crosses bincode IPC.
@@ -1171,4 +1220,12 @@ pub trait Agent {
     /// phase, and a reading that repeats the phase it last reported, are not
     /// changes.
     async fn observe_charging(since: Generation) -> ChargingObservation;
+
+    /// Long-poll the connection indicator. Answers as soon as it differs
+    /// from generation `since`, or with the unchanged indicator after
+    /// [`OBSERVE_HOLD`]. Pass `0` to read the current indicator at once.
+    ///
+    /// Appended. The devices seen at agent startup and on a system resume
+    /// are a baseline, not changes.
+    async fn observe_connection(since: Generation) -> ConnectionObservation;
 }

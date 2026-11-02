@@ -260,6 +260,25 @@ fn charging_notifications_stay_on_unless_turned_off() {
 }
 
 #[test]
+fn connection_notifications_stay_on_unless_turned_off() {
+    assert!(Config::default().app_settings.connection_notifications);
+
+    let predating: Config = toml::from_str(
+        r"
+            schema_version = 10
+            [app_settings]
+            charging_notifications = false
+        ",
+    )
+    .expect("config predating the connection setting loads");
+    assert!(predating.app_settings.connection_notifications);
+
+    let mut cfg = Config::default();
+    cfg.app_settings.connection_notifications = false;
+    assert!(!write_and_read(&cfg).app_settings.connection_notifications);
+}
+
+#[test]
 fn desktop_switches_slide_unless_turned_off() {
     assert!(Config::default().app_settings.animate_desktop_switch);
 

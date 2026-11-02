@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use openlogi_core::config::{Config, DeviceConfig, ScrollResolution};
-use openlogi_core::device::{DeviceInventory, StandaloneDevice};
+use openlogi_core::device::{ConnectionLink, DeviceInventory, StandaloneDevice};
 use openlogi_core::device_order::{DeviceIdentity, DeviceStableId};
 use openlogi_hid::session::gesture::MainWheelDivert;
 use openlogi_hid::{DIRECT_DEVICE_INDEX, DeviceRoute, Dpi, LeadCookie, ReportRate};
@@ -237,6 +237,7 @@ pub(super) fn build_devices(
                 settings_revision: paired.settings_revision,
                 codename: paired.codename.clone(),
                 battery: paired.battery.clone(),
+                link: ConnectionLink::for_slot(inv, paired.slot),
             });
         }
     }
@@ -270,6 +271,7 @@ pub(super) fn build_devices(
             // Its name is its display name, and it reports no battery.
             codename: None,
             battery: None,
+            link: None,
         });
     }
     // Order by the same canonical key the GUI carousel uses, so the

@@ -16,6 +16,7 @@ use std::borrow::Cow;
 
 #[cfg(feature = "gpui")]
 use gpui::{AssetSource, Result, SharedString};
+use openlogi_core::device::ConnectionLink;
 
 /// Vendored icons, embedded so they resolve identically in a packaged `.app`
 /// and a dev build. Served under the `action-icons/` path prefix and rendered
@@ -31,7 +32,9 @@ use gpui::{AssetSource, Result, SharedString};
 /// License 2.0. The rest of the app stays on Lucide.
 ///
 /// [Material Symbols](https://fonts.google.com/icons) (Apache-2.0) supply the
-/// battery glyphs. Every other icon stays Lucide.
+/// battery glyphs and the connection popup's device and link glyphs, each in
+/// a `-rounded` and a `-sharp` cut. `bolt.svg` and `unifying.svg` are the
+/// Logi Bolt and Unifying receiver marks. Every other icon stays Lucide.
 ///
 /// `x.svg` duplicates `IconName::Close` on purpose: the overlay does not depend
 /// on gpui-component, and its ring cancel target has to match the settings-side
@@ -47,6 +50,20 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/backlight-low-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-rounded.svg"))),
     ("action-icons/backlight-low-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-low-sharp.svg"))),
     ("action-icons/ban.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/ban.svg"))),
+    ("action-icons/battery-0-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-0-bar-rounded.svg"))),
+    ("action-icons/battery-0-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-0-bar-sharp.svg"))),
+    ("action-icons/battery-1-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-1-bar-rounded.svg"))),
+    ("action-icons/battery-1-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-1-bar-sharp.svg"))),
+    ("action-icons/battery-2-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-2-bar-rounded.svg"))),
+    ("action-icons/battery-2-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-2-bar-sharp.svg"))),
+    ("action-icons/battery-3-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-3-bar-rounded.svg"))),
+    ("action-icons/battery-3-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-3-bar-sharp.svg"))),
+    ("action-icons/battery-4-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-4-bar-rounded.svg"))),
+    ("action-icons/battery-4-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-4-bar-sharp.svg"))),
+    ("action-icons/battery-5-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-5-bar-rounded.svg"))),
+    ("action-icons/battery-5-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-5-bar-sharp.svg"))),
+    ("action-icons/battery-6-bar-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-6-bar-rounded.svg"))),
+    ("action-icons/battery-6-bar-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-6-bar-sharp.svg"))),
     ("action-icons/battery-android-0-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-rounded.svg"))),
     ("action-icons/battery-android-0-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-0-sharp.svg"))),
     ("action-icons/battery-android-1-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-android-1-rounded.svg"))),
@@ -77,10 +94,14 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/battery-charging-80-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-80-2-sharp.svg"))),
     ("action-icons/battery-charging-full-2-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-rounded.svg"))),
     ("action-icons/battery-charging-full-2-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-charging-full-2-sharp.svg"))),
+    ("action-icons/battery-full-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-rounded.svg"))),
+    ("action-icons/battery-full-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-full-sharp.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
+    ("action-icons/bluetooth-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bluetooth-rounded.svg"))),
+    ("action-icons/bluetooth-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bluetooth-sharp.svg"))),
     ("action-icons/bluetooth.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bluetooth.svg"))),
-    ("action-icons/book-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/book-open.svg"))),
     ("action-icons/bolt.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bolt.svg"))),
+    ("action-icons/book-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/book-open.svg"))),
     ("action-icons/bug.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bug.svg"))),
     ("action-icons/calendar.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/calendar.svg"))),
     ("action-icons/camera.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/camera.svg"))),
@@ -132,6 +153,8 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/scissors.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/scissors.svg"))),
     ("action-icons/scroll-text.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/scroll-text.svg"))),
     ("action-icons/search.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/search.svg"))),
+    ("action-icons/settings-input-antenna-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/settings-input-antenna-rounded.svg"))),
+    ("action-icons/settings-input-antenna-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/settings-input-antenna-sharp.svg"))),
     ("action-icons/settings.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/settings.svg"))),
     ("action-icons/skip-back.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/skip-back.svg"))),
     ("action-icons/skip-forward.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/skip-forward.svg"))),
@@ -140,10 +163,12 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/square-plus.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-plus.svg"))),
     ("action-icons/square-terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-terminal.svg"))),
     ("action-icons/square-x.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-x.svg"))),
-    ("action-icons/terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/terminal.svg"))),
     ("action-icons/star.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/star.svg"))),
+    ("action-icons/terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/terminal.svg"))),
     ("action-icons/undo-2.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/undo-2.svg"))),
     ("action-icons/unifying.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/unifying.svg"))),
+    ("action-icons/usb-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/usb-rounded.svg"))),
+    ("action-icons/usb-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/usb-sharp.svg"))),
     ("action-icons/usb.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/usb.svg"))),
     ("action-icons/user.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/user.svg"))),
     ("action-icons/volume-1.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/volume-1.svg"))),
@@ -480,6 +505,90 @@ pub fn lock_key_icon(engaged: bool, style: MaterialSymbolStyle) -> String {
     material_icon_path(stem, style)
 }
 
+/// A full vertical battery, the top of [`BATTERY_BARS`].
+const BATTERY_BAR_FULL: BatteryGlyph = BatteryGlyph {
+    rounded: "action-icons/battery-full-rounded.svg",
+    sharp: "action-icons/battery-full-sharp.svg",
+};
+
+/// Vertical battery glyphs, empty to full, for the connection popup.
+/// Index `0` is `battery-0-bar`; index `7` is [`BATTERY_BAR_FULL`]. The
+/// bands are [`BATTERY_LEVELS`]'.
+const BATTERY_BARS: [BatteryGlyph; 8] = [
+    BatteryGlyph {
+        rounded: "action-icons/battery-0-bar-rounded.svg",
+        sharp: "action-icons/battery-0-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-1-bar-rounded.svg",
+        sharp: "action-icons/battery-1-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-2-bar-rounded.svg",
+        sharp: "action-icons/battery-2-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-3-bar-rounded.svg",
+        sharp: "action-icons/battery-3-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-4-bar-rounded.svg",
+        sharp: "action-icons/battery-4-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-5-bar-rounded.svg",
+        sharp: "action-icons/battery-5-bar-sharp.svg",
+    },
+    BatteryGlyph {
+        rounded: "action-icons/battery-6-bar-rounded.svg",
+        sharp: "action-icons/battery-6-bar-sharp.svg",
+    },
+    BATTERY_BAR_FULL,
+];
+
+/// The vertical battery glyph for `percentage` (`0..=100`) in `style`, in
+/// the same eight bands as [`battery_level_icon`].
+#[must_use]
+pub fn battery_bar_icon(percentage: u8, style: MaterialSymbolStyle) -> &'static str {
+    let percentage = u16::from(percentage.min(100));
+    let step = usize::from((percentage * 8 / 100).min(7));
+    BATTERY_BARS[step].path(style)
+}
+
+/// The Logi Bolt receiver mark. One cut serves both styles.
+pub const BOLT_RECEIVER_ICON: &str = "action-icons/bolt.svg";
+
+/// The Unifying receiver mark. One cut serves both styles.
+pub const UNIFYING_RECEIVER_ICON: &str = "action-icons/unifying.svg";
+
+/// The glyph for how a device reaches the host, in `style`.
+///
+/// Bluetooth and USB are the Material Symbols of those names. Bolt and
+/// Unifying use the receivers' own marks, which have no Material Symbol and
+/// no sharp cut. Lightspeed has neither, so it uses the Material
+/// `settings-input-antenna` glyph, a wireless dongle.
+#[must_use]
+pub const fn connection_link_icon(
+    link: ConnectionLink,
+    style: MaterialSymbolStyle,
+) -> &'static str {
+    match link {
+        ConnectionLink::Bluetooth => style.path(
+            "action-icons/bluetooth-rounded.svg",
+            "action-icons/bluetooth-sharp.svg",
+        ),
+        ConnectionLink::Usb => {
+            style.path("action-icons/usb-rounded.svg", "action-icons/usb-sharp.svg")
+        }
+        ConnectionLink::Lightspeed => style.path(
+            "action-icons/settings-input-antenna-rounded.svg",
+            "action-icons/settings-input-antenna-sharp.svg",
+        ),
+        ConnectionLink::Bolt => BOLT_RECEIVER_ICON,
+        ConnectionLink::Unifying => UNIFYING_RECEIVER_ICON,
+    }
+}
+
 /// The embedded SVG for an `action-icons/…` asset path — the same path
 /// `ActionRingIcon::asset_path` names — or `None` for any other path.
 #[must_use]
@@ -704,6 +813,48 @@ mod tests {
                 battery_level_icon(50, MaterialSymbolStyle::Sharp)
             );
         }
+    }
+
+    #[test]
+    fn the_connection_glyphs_are_embedded_in_both_cuts() {
+        let links = [
+            ConnectionLink::Bluetooth,
+            ConnectionLink::Bolt,
+            ConnectionLink::Unifying,
+            ConnectionLink::Lightspeed,
+            ConnectionLink::Usb,
+        ];
+        for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
+            for link in links {
+                let path = connection_link_icon(link, style);
+                assert!(embedded_icon(path).is_some(), "{link:?}: {path}");
+            }
+            for percentage in 0..=100 {
+                let path = battery_bar_icon(percentage, style);
+                assert!(embedded_icon(path).is_some(), "{percentage}%: {path}");
+            }
+            let suffix = style.suffix();
+            assert_eq!(
+                battery_bar_icon(0, style),
+                format!("action-icons/battery-0-bar-{suffix}.svg")
+            );
+            assert_eq!(
+                battery_bar_icon(50, style),
+                format!("action-icons/battery-4-bar-{suffix}.svg")
+            );
+            assert_eq!(
+                battery_bar_icon(100, style),
+                format!("action-icons/battery-full-{suffix}.svg")
+            );
+        }
+        assert_eq!(
+            connection_link_icon(ConnectionLink::Bolt, MaterialSymbolStyle::Sharp),
+            BOLT_RECEIVER_ICON
+        );
+        assert_ne!(
+            connection_link_icon(ConnectionLink::Bluetooth, MaterialSymbolStyle::Rounded),
+            connection_link_icon(ConnectionLink::Bluetooth, MaterialSymbolStyle::Sharp)
+        );
     }
 
     #[test]

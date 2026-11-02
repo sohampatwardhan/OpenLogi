@@ -330,6 +330,11 @@ pub struct AppSettings {
     /// [`BatteryInfo::needs_attention`](crate::device::BatteryInfo::needs_attention).
     #[serde(default)]
     pub low_battery_threshold: LowBatteryThreshold,
+    /// Whether the overlay briefly shows a device connecting or
+    /// disconnecting. **On by default.** The devices already connected when
+    /// the agent starts, or when the computer wakes, are not changes.
+    #[serde(default = "default_true")]
+    pub connection_notifications: bool,
 }
 
 const SENSITIVITY_MIN: u8 = 1;
@@ -539,6 +544,7 @@ impl Default for AppSettings {
             animate_desktop_switch: true,
             charging_notifications: true,
             low_battery_threshold: LowBatteryThreshold::DEFAULT,
+            connection_notifications: true,
         }
     }
 }
@@ -815,7 +821,8 @@ impl Default for MomentumScrolling {
 /// [`AppSettings::auto_download_assets`],
 /// [`AppSettings::low_battery_notifications`],
 /// [`AppSettings::animate_desktop_switch`],
-/// [`AppSettings::charging_notifications`]), so configs predating a field keep
+/// [`AppSettings::charging_notifications`],
+/// [`AppSettings::connection_notifications`]), so configs predating a field keep
 /// the out-of-the-box behavior.
 fn default_true() -> bool {
     true

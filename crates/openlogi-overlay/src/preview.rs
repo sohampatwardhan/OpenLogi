@@ -1,7 +1,7 @@
 //! Dev-only side-by-side of the transient indicators.
 //!
 //! `OPENLOGI_OSD_PREVIEW=light` or `dark` opens discharging, charging, full,
-//! and low-battery indicators on one backdrop. `sharp` and `sharp-dark` draw
+//! low-battery, and connection indicators on one backdrop. `sharp` and `sharp-dark` draw
 //! the same cards with the sharp battery cut. `OPENLOGI_OSD_RADIUS=0` forces
 //! that cut on any of those modes. It does not connect to an agent.
 
@@ -9,17 +9,20 @@ use gpui::{
     AppContext as _, Bounds, Context, IntoElement, ParentElement, Render, Styled, Window,
     WindowBounds, WindowOptions, div, point, px, size,
 };
-use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, DeviceKind};
-use openlogi_ipc::{ChargingEvent, ChargingPopup, Notice, NoticeKind};
+use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, ConnectionLink, DeviceKind};
+use openlogi_ipc::{
+    ChargingEvent, ChargingPopup, ConnectionEvent, ConnectionPopup, Notice, NoticeKind,
+};
 use openlogi_ui::action_icons::MaterialSymbolStyle;
 
 use crate::charging::charging_card;
+use crate::connection::connection_card;
 use crate::notice::notice_card;
 use crate::osd::{CHARGING_HEIGHT, CHARGING_WIDTH};
 
 /// Width of the four-card rows, including the gaps between them.
 const BOARD_WIDTH: f32 = CHARGING_WIDTH * 4.0 + 16.0 * 3.0 + 48.0;
-const BOARD_HEIGHT: f32 = CHARGING_HEIGHT * 3.0 + 16.0 * 2.0 + 48.0;
+const BOARD_HEIGHT: f32 = CHARGING_HEIGHT * 4.0 + 16.0 * 3.0 + 48.0;
 
 /// Open the indicator cards on one backdrop and stay up until the process
 /// is closed.
@@ -51,6 +54,27 @@ fn sample(event: ChargingEvent, percentage: u8) -> ChargingPopup {
         event,
         percentage: Some(percentage),
         level: BatteryLevel::Good,
+    }
+}
+
+/// A connection card for the preview's last row.
+fn connection_sample(
+    name: &str,
+    kind: DeviceKind,
+    event: ConnectionEvent,
+    link: ConnectionLink,
+    battery: Option<(Option<u8>, BatteryLevel)>,
+) -> ConnectionPopup {
+    ConnectionPopup {
+        name: Some(name.to_owned()),
+        kind,
+        event,
+        link,
+        battery: battery.map(|(percentage, level)| BatteryInfo {
+            percentage,
+            level,
+            status: BatteryStatus::Discharging,
+        }),
     }
 }
 
@@ -130,5 +154,47 @@ impl Render for Board {
                         style,
                     )),
             )
+            .child(div().flex().flex_row().gap(px(16.0)).children([
+                connection_card(
+                    &connection_sample(
+                        "MX Master 3S",
+                        DeviceKind::Mouse,
+                        ConnectionEvent::Connected,
+                        ConnectionLink::Bolt,
+                        Some((Some(80), BatteryLevel::Good)),
+                    ),
+                    style,
+                ),
+                connection_card(
+                    &connection_sample(
+                        "MX Keys S",
+                        DeviceKind::Keyboard,
+                        ConnectionEvent::Disconnected,
+                        ConnectionLink::Bluetooth,
+                        Some((Some(35), BatteryLevel::Good)),
+                    ),
+                    style,
+                ),
+                connection_card(
+                    &connection_sample(
+                        "M720 Triathlon",
+                        DeviceKind::Mouse,
+                        ConnectionEvent::Connected,
+                        ConnectionLink::Unifying,
+                        Some((None, BatteryLevel::Good)),
+                    ),
+                    style,
+                ),
+                connection_card(
+                    &connection_sample(
+                        "G502 X Plus",
+                        DeviceKind::Mouse,
+                        ConnectionEvent::Connected,
+                        ConnectionLink::Lightspeed,
+                        None,
+                    ),
+                    style,
+                ),
+            ]))
     }
 }

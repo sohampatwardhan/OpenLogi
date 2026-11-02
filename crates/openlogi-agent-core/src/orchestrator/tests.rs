@@ -32,6 +32,7 @@ use crate::observable::ObservableState;
 mod camera;
 mod capture_plans;
 mod charging;
+mod connection;
 mod device_list;
 mod device_settings;
 mod disable_keys_native_write;
@@ -71,6 +72,7 @@ fn dev(key: &str, slot: u8, online: bool) -> AgentDevice {
         settings_revision: 0,
         codename: None,
         battery: None,
+        link: Some(openlogi_core::device::ConnectionLink::Bolt),
     }
 }
 
