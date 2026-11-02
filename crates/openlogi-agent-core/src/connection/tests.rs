@@ -1,4 +1,5 @@
-//! Connection sessions: baselines, both directions, departures, and flaps.
+//! Connection sessions: baselines, both directions, departures, link
+//! changes, devices on several links, and flaps.
 
 use openlogi_core::config::AppSettings;
 use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, ConnectionLink, DeviceKind};
@@ -23,6 +24,11 @@ fn sample(id: &str, online: bool, percentage: Option<u8>) -> ConnectionSample {
         online,
         battery: percentage.map(battery),
     }
+}
+
+/// `sample` reaching the host over `link`.
+fn on(link: ConnectionLink, sample: ConnectionSample) -> ConnectionSample {
+    ConnectionSample { link, ..sample }
 }
 
 fn events(sessions: &mut ConnectionSessions, samples: &[ConnectionSample]) -> Vec<ConnectionEvent> {
@@ -246,4 +252,76 @@ async fn the_popup_stays_off_when_the_user_turns_it_off_and_does_not_replay() {
         shown.shown.expect("the next change").event,
         ConnectionEvent::Connected
     );
+}
+
+#[test]
+fn moving_to_another_link_while_online_is_connected_over_the_new_link() {
+    let mut sessions = ConnectionSessions::default();
+    events(&mut sessions, &[sample("mouse", true, Some(70))]);
+
+    let moved = sessions.note(&[on(ConnectionLink::Bluetooth, sample("mouse", true, None))]);
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0].event, ConnectionEvent::Connected);
+    assert_eq!(moved[0].link, ConnectionLink::Bluetooth);
+    assert_eq!(
+        moved[0].battery,
+        Some(battery(70)),
+        "the last battery is kept"
+    );
+    assert!(
+        events(
+            &mut sessions,
+            &[on(ConnectionLink::Bluetooth, sample("mouse", true, None))]
+        )
+        .is_empty(),
+        "staying on the new link is no change"
+    );
+}
+
+#[test]
+fn a_device_on_two_links_is_one_device_online_over_the_live_one() {
+    // Paired to the Bolt receiver and over Bluetooth: the receiver keeps its
+    // slot offline while the device is on Bluetooth. Either inventory order.
+    let bolt_asleep = sample("mouse", false, None);
+    let bluetooth = on(ConnectionLink::Bluetooth, sample("mouse", true, Some(55)));
+    for pass in [
+        [bolt_asleep.clone(), bluetooth.clone()],
+        [bluetooth.clone(), bolt_asleep.clone()],
+    ] {
+        let mut sessions = ConnectionSessions::default();
+        events(&mut sessions, &pass);
+        for _ in 0..3 {
+            assert!(
+                events(&mut sessions, &pass).is_empty(),
+                "the offline slot does not flap the device on every refresh"
+            );
+        }
+        let gone = sessions.note(&[
+            bolt_asleep.clone(),
+            on(ConnectionLink::Bluetooth, sample("mouse", false, None)),
+        ]);
+        assert_eq!(gone.len(), 1, "offline on both links is one disconnect");
+        assert_eq!(gone[0].event, ConnectionEvent::Disconnected);
+        assert_eq!(gone[0].link, ConnectionLink::Bluetooth);
+    }
+}
+
+#[test]
+fn easy_switch_from_bolt_to_bluetooth_through_a_gap_drops_then_connects_over_bluetooth() {
+    let mut sessions = ConnectionSessions::default();
+    let bolt = sample("mouse", true, Some(90));
+    events(&mut sessions, &[bolt]);
+
+    // The receiver sees the device leave before Bluetooth links up.
+    assert_eq!(
+        events(&mut sessions, &[sample("mouse", false, None)]),
+        [ConnectionEvent::Disconnected]
+    );
+    let back = sessions.note(&[
+        sample("mouse", false, None),
+        on(ConnectionLink::Bluetooth, sample("mouse", true, Some(90))),
+    ]);
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].event, ConnectionEvent::Connected);
+    assert_eq!(back[0].link, ConnectionLink::Bluetooth);
 }
