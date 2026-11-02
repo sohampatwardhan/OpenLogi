@@ -6,6 +6,8 @@ use openlogi_ipc::{NoticeKind, OBSERVE_HOLD};
 
 use super::{LowBatteryWatch, NOTICE_LIFETIME, NoticeBoard};
 
+const DEFAULT: u8 = openlogi_core::device::LOW_BATTERY_THRESHOLD_DEFAULT;
+
 fn reading(percentage: Option<u8>, level: BatteryLevel, status: BatteryStatus) -> BatteryInfo {
     BatteryInfo {
         percentage,
@@ -110,6 +112,29 @@ fn a_reading_wobbling_around_the_threshold_is_not_a_new_discharge() {
     assert!(!watch.observe("mouse", &discharging(20)));
 }
 
+/// A raised threshold moves the recharge point with it: a reading just above
+/// the threshold is the same discharge, at any threshold.
+#[test]
+fn a_reading_just_above_a_raised_threshold_is_not_a_new_discharge() {
+    let mut watch = LowBatteryWatch::default();
+    let settings = AppSettings {
+        low_battery_threshold: openlogi_core::config::LowBatteryThreshold::new(50),
+        ..AppSettings::default()
+    };
+    assert!(watch.take_reading(&settings, "mouse", &discharging(50)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(51)));
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(59)));
+    assert!(
+        !watch.take_reading(&settings, "mouse", &discharging(50)),
+        "back under the threshold is still the first discharge"
+    );
+    assert!(!watch.take_reading(&settings, "mouse", &discharging(60)));
+    assert!(
+        watch.take_reading(&settings, "mouse", &discharging(50)),
+        "ten points above the threshold counts as charged"
+    );
+}
+
 #[test]
 fn a_charged_battery_is_announced_again_on_its_next_discharge() {
     for charged in [
@@ -171,8 +196,8 @@ fn a_recharge_while_muted_still_ends_the_discharge() {
     let mut watch = LowBatteryWatch::default();
     assert!(watch.observe("mouse", &discharging(15)));
     // The user turns the notices off; the mouse charges, then runs low again.
-    watch.observe_muted("mouse", &discharging(80));
-    watch.observe_muted("mouse", &discharging(15));
+    watch.observe_muted("mouse", &discharging(80), DEFAULT);
+    watch.observe_muted("mouse", &discharging(15), DEFAULT);
     assert!(
         watch.observe("mouse", &discharging(15)),
         "turned back on, the new discharge is announced"
@@ -182,7 +207,7 @@ fn a_recharge_while_muted_still_ends_the_discharge() {
 #[test]
 fn a_low_reading_while_muted_is_not_counted_as_announced() {
     let mut watch = LowBatteryWatch::default();
-    watch.observe_muted("mouse", &discharging(15));
+    watch.observe_muted("mouse", &discharging(15), DEFAULT);
     assert!(watch.observe("mouse", &discharging(15)));
     assert!(!watch.observe("mouse", &discharging(14)));
 }

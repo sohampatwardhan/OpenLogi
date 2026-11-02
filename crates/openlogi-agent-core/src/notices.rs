@@ -21,8 +21,11 @@ use tokio::time::Instant;
 /// How long a notice shows.
 pub const NOTICE_LIFETIME: Duration = Duration::from_secs(8);
 
-/// A charge at or above which a battery that was low counts as charged again.
-const RECHARGED_PERCENT: u8 = 30;
+/// How far above the low-battery threshold a battery that was low has to
+/// charge to count as charged again, in percent: 30% at the default 20%
+/// threshold. Tied to the threshold, so a reading just above a raised one is
+/// still the same discharge.
+const RECHARGE_MARGIN: u8 = 10;
 
 struct Posted {
     notice: Notice,
@@ -168,7 +171,7 @@ impl LowBatteryWatch {
         if settings.low_battery_notifications {
             return self.observe_at(device, battery, settings.low_battery_threshold.get());
         }
-        self.observe_muted(device, battery);
+        self.observe_muted(device, battery, settings.low_battery_threshold.get());
         false
     }
 
@@ -190,7 +193,7 @@ impl LowBatteryWatch {
         if battery.needs_attention(threshold) {
             return self.announced.insert(device.to_owned());
         }
-        self.observe_muted(device, battery);
+        self.observe_muted(device, battery, threshold);
         false
     }
 
@@ -198,17 +201,17 @@ impl LowBatteryWatch {
     /// A recharge still ends its discharge. A low reading is not marked as
     /// announced, so the first low reading after the notices are back on
     /// announces it. A reading that needs attention is never a recharge.
-    fn observe_muted(&mut self, device: &str, battery: &BatteryInfo) {
-        if recharged(battery) {
+    fn observe_muted(&mut self, device: &str, battery: &BatteryInfo, threshold: u8) {
+        if recharged(battery, threshold) {
             self.announced.remove(device);
         }
     }
 }
 
-/// Whether a battery has been charged since it was low: it is charging now,
-/// it reads [`RECHARGED_PERCENT`] or more, or, without a percentage, its level
-/// is good or full again.
-fn recharged(battery: &BatteryInfo) -> bool {
+/// Whether a battery has been charged since it was low at `threshold`
+/// percent: it is charging now, it reads [`RECHARGE_MARGIN`] or more above
+/// `threshold`, or, without a percentage, its level is good or full again.
+fn recharged(battery: &BatteryInfo, threshold: u8) -> bool {
     let charging = matches!(
         battery.status,
         BatteryStatus::Charging | BatteryStatus::ChargingSlow | BatteryStatus::Full
@@ -216,7 +219,7 @@ fn recharged(battery: &BatteryInfo) -> bool {
     charging
         || battery.percentage.map_or_else(
             || matches!(battery.level, BatteryLevel::Good | BatteryLevel::Full),
-            |charge| charge >= RECHARGED_PERCENT,
+            |charge| charge >= threshold.saturating_add(RECHARGE_MARGIN),
         )
 }
 
