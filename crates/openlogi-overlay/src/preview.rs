@@ -108,7 +108,7 @@ impl Render for Board {
         let style = self.style;
         let row = |events: [(ChargingEvent, u8); 4]| {
             div().flex().flex_row().gap(px(16.0)).children(
-                events.map(|(event, percentage)| charging_card(&sample(event, percentage), style)),
+                events.map(|(event, percentage)| charging_card(&sample(event, percentage))),
             )
         };
         div()
@@ -137,22 +137,19 @@ impl Render for Board {
                     .flex_row()
                     .items_center()
                     .gap(px(16.0))
-                    .child(charging_card(&sample(ChargingEvent::Full, 100), style))
-                    .child(notice_card(
-                        &Notice {
-                            id: 1,
-                            kind: NoticeKind::LowBattery {
-                                name: Some("MX Anywhere 3S".to_owned()),
-                                kind: DeviceKind::Mouse,
-                                battery: BatteryInfo {
-                                    percentage: Some(12),
-                                    level: BatteryLevel::Low,
-                                    status: BatteryStatus::Discharging,
-                                },
+                    .child(charging_card(&sample(ChargingEvent::Full, 100)))
+                    .child(notice_card(&Notice {
+                        id: 1,
+                        kind: NoticeKind::LowBattery {
+                            name: Some("MX Anywhere 3S".to_owned()),
+                            kind: DeviceKind::Mouse,
+                            battery: BatteryInfo {
+                                percentage: Some(12),
+                                level: BatteryLevel::Low,
+                                status: BatteryStatus::Discharging,
                             },
                         },
-                        style,
-                    )),
+                    })),
             )
             .child(
                 div().flex().flex_row().gap(px(16.0)).children(
