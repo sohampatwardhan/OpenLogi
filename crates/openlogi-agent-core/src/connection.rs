@@ -4,7 +4,13 @@
 //! baseline, as are those on the first inventory after a system resume or a
 //! settings-confirmation replay. After that, a device that comes online is
 //! announced as connected, and one that goes offline or leaves the
-//! inventory as disconnected, on the first inventory that shows it.
+//! inventory as disconnected, on the first inventory that shows it. A device
+//! that stays online but moves to another link — Easy-Switch from its Bolt
+//! receiver to Bluetooth, say — is announced as connected over the new link.
+//!
+//! A device paired on several links is in the inventory once per link, all
+//! under its one key: it is online when any of those links is, and reaches
+//! the host over the one that is.
 //!
 //! There is one card. A quick flap — a disconnect and then a reconnect
 //! before the card ends — updates that card to the latest state and restarts
@@ -62,6 +68,33 @@ impl Known {
     }
 }
 
+/// `samples` with one entry per device id, in the order each id first
+/// appears. A device in the inventory on several links is online when any of
+/// them is, and takes the link, battery and name of the one it is online on.
+fn per_device(samples: &[ConnectionSample]) -> Vec<ConnectionSample> {
+    let mut devices: Vec<ConnectionSample> = Vec::with_capacity(samples.len());
+    for sample in samples {
+        match devices.iter_mut().find(|device| device.id == sample.id) {
+            None => devices.push(sample.clone()),
+            Some(device) if sample.online && !device.online => {
+                let name = sample.name.clone().or_else(|| device.name.take());
+                let battery = sample.battery.clone().or_else(|| device.battery.take());
+                *device = ConnectionSample {
+                    name,
+                    battery,
+                    ..sample.clone()
+                };
+            }
+            Some(device) => {
+                if device.name.is_none() {
+                    device.name.clone_from(&sample.name);
+                }
+            }
+        }
+    }
+    devices
+}
+
 /// Per-device link state: whether each device was online on the last pass,
 /// and the last name and battery it had.
 #[derive(Default)]
@@ -89,12 +122,19 @@ impl ConnectionSessions {
     /// its last battery, so it is announced again when it returns.
     pub fn note(&mut self, samples: &[ConnectionSample]) -> Vec<ConnectionPopup> {
         let announce = std::mem::replace(&mut self.baselined, true);
+        let samples = per_device(samples);
         let mut popups = Vec::new();
-        for sample in samples {
+        for sample in &samples {
             let previous = self.devices.get(&sample.id);
-            let event = match (previous.map(|known| known.online), sample.online) {
-                (None | Some(false), true) => Some(ConnectionEvent::Connected),
-                (Some(true), false) => Some(ConnectionEvent::Disconnected),
+            let event = match (
+                previous.map(|known| (known.online, known.link)),
+                sample.online,
+            ) {
+                (None | Some((false, _)), true) => Some(ConnectionEvent::Connected),
+                (Some((true, link)), true) if link != sample.link => {
+                    Some(ConnectionEvent::Connected)
+                }
+                (Some((true, _)), false) => Some(ConnectionEvent::Disconnected),
                 _ => None,
             };
             let known = Known {
@@ -104,7 +144,12 @@ impl ConnectionSessions {
                     .clone()
                     .or_else(|| previous.and_then(|known| known.name.clone())),
                 kind: sample.kind,
-                link: sample.link,
+                // Offline on every link, the device is still the one that was
+                // last online on its old link.
+                link: match previous {
+                    Some(known) if !sample.online => known.link,
+                    _ => sample.link,
+                },
                 battery: sample
                     .battery
                     .clone()
