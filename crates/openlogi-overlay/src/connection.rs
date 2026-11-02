@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, FontFeatures, FontWeight, IntoElement,
-    ParentElement, Render, Styled, Window, div, px, svg,
+    ParentElement, Pixels, Render, Styled, Window, div, px, svg,
 };
 use openlogi_core::device::{BatteryInfo, BatteryLevel};
 use openlogi_ipc::{ConnectionEvent, ConnectionPopup};
@@ -83,6 +83,79 @@ const ROW_GAP: f32 = 8.0;
 /// Gap between the charge and the battery glyph, tighter than [`ROW_GAP`]
 /// so the two read as one reading.
 const CHARGE_GAP: f32 = 2.0;
+/// The cards' text size: GPUI's default `1rem`.
+const TEXT_SIZE: f32 = 16.0;
+/// Room for the rounding and kerning a sum of glyph advances leaves out.
+const TEXT_SLACK: f32 = 4.0;
+/// The widest the card grows to fit a name. A name longer than this still
+/// truncates, so one odd codename cannot span the display.
+const MAX_WIDTH: f32 = 720.0;
+
+/// The widths of what one card row holds, in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RowWidths {
+    /// The device name, in the title weight.
+    pub(crate) name: f32,
+    /// `Connected` or `Disconnected`.
+    pub(crate) status: f32,
+    /// Whether the link glyph follows the status.
+    pub(crate) link: bool,
+    /// The charge text, when the battery reading and its glyph follow.
+    pub(crate) charge: Option<f32>,
+}
+
+/// The card width that shows `row` without truncating the name: never
+/// narrower than [`osd::CONNECTION_WIDTH`], and at most [`MAX_WIDTH`].
+pub(crate) fn fit_width(row: RowWidths) -> f32 {
+    let mut width = PAD * 2.0 + row.name + ROW_GAP + row.status;
+    if row.link {
+        width += ROW_GAP + ICON;
+    }
+    if let Some(charge) = row.charge {
+        width += ROW_GAP + charge + CHARGE_GAP + ICON;
+    }
+    (width + TEXT_SLACK).clamp(osd::CONNECTION_WIDTH, MAX_WIDTH)
+}
+
+/// The card width for `popup`, measured in the system UI font the card
+/// draws with.
+pub(crate) fn card_width(cx: &App, popup: &ConnectionPopup) -> f32 {
+    let ConnectionCopy {
+        name,
+        status,
+        charge,
+    } = connection_copy(popup);
+    let connected = popup.event == ConnectionEvent::Connected;
+    fit_width(RowWidths {
+        name: text_width(cx, &name, FontWeight::SEMIBOLD),
+        status: text_width(cx, &status, FontWeight::NORMAL),
+        link: connected,
+        charge: charge
+            .filter(|_| connected && popup.battery.is_some())
+            .map(|charge| text_width(cx, &charge, FontWeight::NORMAL)),
+    })
+}
+
+/// The width of `text` at [`TEXT_SIZE`] in `weight`, from its glyph
+/// advances. A glyph the font lacks counts as one em.
+fn text_width(cx: &App, text: &str, weight: FontWeight) -> f32 {
+    let text_system = cx.text_system();
+    let font_id = text_system.resolve_font(&gpui::Font {
+        weight,
+        ..gpui::font(".SystemUIFont")
+    });
+    let size = px(TEXT_SIZE);
+    let em = text_system
+        .em_width(font_id, size)
+        .map_or(TEXT_SIZE, Pixels::as_f32);
+    text.chars()
+        .map(|ch| {
+            text_system
+                .advance(font_id, size, ch)
+                .map_or(em, |advance| advance.width.as_f32())
+        })
+        .sum()
+}
 
 fn glyph(path: &'static str) -> gpui::Svg {
     svg()
@@ -92,9 +165,13 @@ fn glyph(path: &'static str) -> gpui::Svg {
         .text_color(osd::accent())
 }
 
-/// The connection card, shared by the indicator window and the preview
-/// board.
-pub(crate) fn connection_card(popup: &ConnectionPopup, style: MaterialSymbolStyle) -> gpui::Div {
+/// The connection card, `width` wide, shared by the indicator window and the
+/// preview board. [`card_width`] is the width that fits the whole name.
+pub(crate) fn connection_card(
+    popup: &ConnectionPopup,
+    style: MaterialSymbolStyle,
+    width: f32,
+) -> gpui::Div {
     let ConnectionCopy {
         name,
         status,
@@ -131,7 +208,7 @@ pub(crate) fn connection_card(popup: &ConnectionPopup, style: MaterialSymbolStyl
         .flex_row()
         .items_center()
         .gap(px(ROW_GAP))
-        .w(px(osd::CONNECTION_WIDTH))
+        .w(px(width))
         .h(px(osd::CONNECTION_HEIGHT))
         .px(px(PAD))
         .rounded(px(osd::RADIUS))
@@ -151,24 +228,26 @@ pub(crate) fn connection_card(popup: &ConnectionPopup, style: MaterialSymbolStyl
 /// The indicator window's view: the popup the agent is showing.
 pub(crate) struct ConnectionView {
     popup: ConnectionPopup,
+    /// The window's width, which [`card_width`] chose when it opened.
+    width: f32,
 }
 
 impl ConnectionView {
-    pub(crate) fn new(popup: ConnectionPopup) -> Self {
-        Self { popup }
+    pub(crate) fn new(popup: ConnectionPopup, width: f32) -> Self {
+        Self { popup, width }
     }
 }
 
 impl Render for ConnectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        connection_card(&self.popup, crate::icons::style(cx))
+        connection_card(&self.popup, crate::icons::style(cx), self.width)
     }
 }
 
 /// Show `popup`, or close the indicator when it is `None`.
 ///
-/// A later popup replaces the card in place, so a device that flaps shows
-/// one card with its latest state rather than a window closing and opening.
+/// A later popup that fits the same width replaces the card in place, so a
+/// device that flaps shows one card with its latest state.
 pub(crate) fn present(cx: &mut App, popup: Option<ConnectionPopup>) {
     let open: Vec<gpui::WindowHandle<ConnectionView>> = cx
         .windows()
@@ -181,12 +260,25 @@ pub(crate) fn present(cx: &mut App, popup: Option<ConnectionPopup>) {
         }
         return;
     };
-    if open.is_empty() {
+    let width = card_width(cx, &popup);
+    // A card that needs another width is reopened rather than resized:
+    // resizing in place keeps the top-left, which would shift the card off
+    // centre. The name and the battery stay the same across a flap, so this
+    // is the status changing width.
+    let reopen = open.is_empty()
+        || open.iter().any(|view| {
+            view.read_with(cx, |view, _| view.width.to_bits() != width.to_bits())
+                .unwrap_or(true)
+        });
+    if reopen {
+        for view in open {
+            let _ = view.update(cx, |_, window, _| window.remove_window());
+        }
         if let Err(error) = crate::popup::open(
             cx,
             "openlogi-connection-osd",
-            gpui::size(px(osd::CONNECTION_WIDTH), px(osd::CONNECTION_HEIGHT)),
-            move |_, cx| cx.new(|_| ConnectionView::new(popup.clone())),
+            gpui::size(px(width), px(osd::CONNECTION_HEIGHT)),
+            move |_, cx| cx.new(|_| ConnectionView::new(popup.clone(), width)),
         ) {
             warn!(%error, "could not open the connection indicator window");
         }

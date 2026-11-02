@@ -116,3 +116,71 @@ fn one_window_shows_the_latest_change_in_place_until_nothing_shows(cx: &mut gpui
     cx.run_until_parked();
     assert!(shown(cx).is_empty());
 }
+
+#[test]
+fn the_card_widens_to_fit_the_whole_name() {
+    let short = RowWidths {
+        name: 60.0,
+        status: 80.0,
+        link: true,
+        charge: Some(36.0),
+    };
+    assert_eq!(
+        fit_width(short),
+        osd::CONNECTION_WIDTH,
+        "a row that fits keeps the narrowest card"
+    );
+
+    let long = RowWidths {
+        name: 160.0,
+        ..short
+    };
+    let needed =
+        PAD * 2.0 + 160.0 + ROW_GAP + 80.0 + ROW_GAP + ICON + ROW_GAP + 36.0 + CHARGE_GAP + ICON;
+    assert!(
+        fit_width(long) >= needed,
+        "{} must hold the name, status, link, charge and battery ({needed})",
+        fit_width(long)
+    );
+    assert!(fit_width(long) > osd::CONNECTION_WIDTH);
+}
+
+#[test]
+fn a_disconnect_needs_no_room_for_the_link_or_the_battery() {
+    let disconnected = RowWidths {
+        name: 220.0,
+        status: 100.0,
+        link: false,
+        charge: None,
+    };
+    let connected = RowWidths {
+        link: true,
+        charge: Some(36.0),
+        ..disconnected
+    };
+    assert!(fit_width(disconnected) < fit_width(connected));
+}
+
+#[test]
+fn a_very_long_name_stops_at_the_widest_card() {
+    let row = RowWidths {
+        name: 2000.0,
+        status: 80.0,
+        link: true,
+        charge: Some(36.0),
+    };
+    assert_eq!(fit_width(row), MAX_WIDTH);
+}
+
+#[gpui::test]
+fn a_measured_name_is_wider_than_nothing(cx: &mut gpui::TestAppContext) {
+    let named = popup(
+        ConnectionEvent::Connected,
+        Some(battery(Some(100), BatteryLevel::Full)),
+    );
+    let width = cx.update(|cx| card_width(cx, &named));
+    assert!(
+        (osd::CONNECTION_WIDTH..=MAX_WIDTH).contains(&width),
+        "{width}"
+    );
+}
