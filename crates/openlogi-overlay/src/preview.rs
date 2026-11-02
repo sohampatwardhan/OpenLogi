@@ -16,7 +16,7 @@ use openlogi_ipc::{
 use openlogi_ui::action_icons::MaterialSymbolStyle;
 
 use crate::charging::charging_card;
-use crate::connection::connection_card;
+use crate::connection::{card_width, connection_card};
 use crate::notice::notice_card;
 use crate::osd::{CHARGING_HEIGHT, CHARGING_WIDTH};
 
@@ -99,7 +99,7 @@ struct Board {
 }
 
 impl Render for Board {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = if self.dark {
             gpui::hsla(0.0, 0.0, 0.16, 1.0)
         } else {
@@ -154,47 +154,40 @@ impl Render for Board {
                         style,
                     )),
             )
-            .child(div().flex().flex_row().gap(px(16.0)).children([
-                connection_card(
-                    &connection_sample(
-                        "MX Master 3S",
-                        DeviceKind::Mouse,
-                        ConnectionEvent::Connected,
-                        ConnectionLink::Bolt,
-                        Some((Some(80), BatteryLevel::Good)),
-                    ),
-                    style,
+            .child(
+                div().flex().flex_row().gap(px(16.0)).children(
+                    [
+                        connection_sample(
+                            "MX Anywhere 3S",
+                            DeviceKind::Mouse,
+                            ConnectionEvent::Connected,
+                            ConnectionLink::Bolt,
+                            Some((Some(80), BatteryLevel::Good)),
+                        ),
+                        connection_sample(
+                            "MX Keys S",
+                            DeviceKind::Keyboard,
+                            ConnectionEvent::Disconnected,
+                            ConnectionLink::Bluetooth,
+                            Some((Some(35), BatteryLevel::Good)),
+                        ),
+                        connection_sample(
+                            "M720 Triathlon",
+                            DeviceKind::Mouse,
+                            ConnectionEvent::Connected,
+                            ConnectionLink::Unifying,
+                            Some((None, BatteryLevel::Good)),
+                        ),
+                        connection_sample(
+                            "G502 X Plus",
+                            DeviceKind::Mouse,
+                            ConnectionEvent::Connected,
+                            ConnectionLink::Lightspeed,
+                            None,
+                        ),
+                    ]
+                    .map(|sample| connection_card(&sample, style, card_width(cx, &sample))),
                 ),
-                connection_card(
-                    &connection_sample(
-                        "MX Keys S",
-                        DeviceKind::Keyboard,
-                        ConnectionEvent::Disconnected,
-                        ConnectionLink::Bluetooth,
-                        Some((Some(35), BatteryLevel::Good)),
-                    ),
-                    style,
-                ),
-                connection_card(
-                    &connection_sample(
-                        "M720 Triathlon",
-                        DeviceKind::Mouse,
-                        ConnectionEvent::Connected,
-                        ConnectionLink::Unifying,
-                        Some((None, BatteryLevel::Good)),
-                    ),
-                    style,
-                ),
-                connection_card(
-                    &connection_sample(
-                        "G502 X Plus",
-                        DeviceKind::Mouse,
-                        ConnectionEvent::Connected,
-                        ConnectionLink::Lightspeed,
-                        None,
-                    ),
-                    style,
-                ),
-            ]))
+            )
     }
 }
