@@ -1,5 +1,5 @@
 //! Chrome shared by the transient indicators: brightness, lock keys, the
-//! backlight-effect list, charging, and connection.
+//! backlight-effect list, charging, connection, wheel mode, and DPI.
 //!
 //! They float over whatever is on the desktop, so they stay a dark card in
 //! both appearances — the same choice the notices make. The blue is the brand

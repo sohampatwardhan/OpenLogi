@@ -37,7 +37,8 @@ use openlogi_core::device::ConnectionLink;
 /// [Material Symbols](https://fonts.google.com/icons) (Apache-2.0) supply the
 /// connection popup's vertical battery and link glyphs, each in a `-rounded`
 /// and a `-sharp` cut. `bolt.svg` and `unifying.svg` are the Logi Bolt and
-/// Unifying receiver marks. Every other icon stays Lucide.
+/// Unifying receiver marks. Every other icon stays Lucide, the wheel-mode,
+/// DPI and precision-mode popups' glyphs among them.
 ///
 /// `x.svg` duplicates `IconName::Close` on purpose: the overlay does not depend
 /// on gpui-component, and its ring cancel target has to match the settings-side
@@ -85,6 +86,7 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/bug.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bug.svg"))),
     ("action-icons/calendar.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/calendar.svg"))),
     ("action-icons/camera.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/camera.svg"))),
+    ("action-icons/crosshair.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/crosshair.svg"))),
     ("action-icons/chevron-left.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/chevron-left.svg"))),
     ("action-icons/chevron-right.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/chevron-right.svg"))),
     ("action-icons/chevrons-down.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/chevrons-down.svg"))),
@@ -465,6 +467,18 @@ pub const fn connection_link_icon(
     }
 }
 
+/// The wheel-mode popup glyph: Lucide's `refresh-cw`, the glyph the Toggle
+/// SmartShift action shows. Both modes draw it, and the label names the
+/// mode. Lucide has one cut, so it serves both styles, as the receiver marks
+/// do.
+pub const WHEEL_MODE_ICON: &str = "action-icons/refresh-cw.svg";
+
+/// The DPI popup glyph: Lucide's `gauge`, the glyph the DPI actions show.
+pub const DPI_ICON: &str = "action-icons/gauge.svg";
+
+/// The precision-mode popup glyph: Lucide's `crosshair`.
+pub const PRECISION_ICON: &str = "action-icons/crosshair.svg";
+
 /// The embedded SVG for an `action-icons/…` asset path — the same path
 /// `ActionRingIcon::asset_path` names — or `None` for any other path.
 #[must_use]
@@ -688,6 +702,13 @@ mod tests {
             connection_link_icon(ConnectionLink::Bluetooth, MaterialSymbolStyle::Rounded),
             connection_link_icon(ConnectionLink::Bluetooth, MaterialSymbolStyle::Sharp)
         );
+    }
+
+    #[test]
+    fn the_wheel_mode_and_pointer_speed_glyphs_are_embedded() {
+        for path in [WHEEL_MODE_ICON, DPI_ICON, PRECISION_ICON] {
+            assert!(embedded_icon(path).is_some(), "{path}");
+        }
     }
 
     #[test]

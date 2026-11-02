@@ -27,6 +27,12 @@
 //! compared with the device's last lock state, and each key that changed goes
 //! to the on-screen indicator ([`EventReceiver::take_lock_keys`]).
 //!
+//! A mouse's wheel mode goes to the agent as a SmartShift (`0x2111` or
+//! `0x2110`) reading ([`EventReceiver::take_wheel_modes`]): once per
+//! connection, and again after each `0x2121` ratchet-switch broadcast. The
+//! agent compares them, since the broadcast also fires when SmartShift
+//! disengages the ratchet on a fast spin, which leaves the mode alone.
+//!
 //! [`PairedDevice::settings_revision`]: openlogi_core::device::PairedDevice::settings_revision
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -50,12 +56,14 @@ use hidpp::feature::fn_inversion::{
 use hidpp::feature::hires_wheel::{self, HiResWheelEvent};
 use hidpp::feature::lock_key_state::{LockKeyStateFeature, LockKeys};
 use hidpp::feature::multi_platform::PlatformChange;
+use hidpp::feature::smartshift::SmartShiftFeature;
+use hidpp::feature::smartshift_enhanced::SmartShiftEnhancedFeature;
 use hidpp::feature::unified_battery::BatteryEvent;
 use hidpp::feature::wireless_device_status::WirelessDeviceStatusEvent;
 use hidpp::protocol::{v10, v20};
 use hidpp::receiver::{bolt, unifying};
 use openlogi_core::device::{BatteryInfo, LockKey};
-use openlogi_core::hid::BacklightEffect;
+use openlogi_core::hid::{BacklightEffect, SmartShiftMode};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tokio::sync::Notify;
@@ -228,6 +236,71 @@ pub struct BatteryUpdate {
     pub battery: BatteryInfo,
 }
 
+/// Why a SmartShift reading was taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelModeCause {
+    /// The mouse came online: its mode then is a baseline.
+    Connected,
+    /// The mouse broadcast a `0x2121` ratchet switch.
+    Switched,
+}
+
+/// A mouse's SmartShift mode, read when it connected or after a ratchet
+/// switch, for the wheel-mode popup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WheelModeUpdate {
+    /// Vendor id of the HID node the mouse is reached on: the receiver for a
+    /// paired mouse, the mouse itself when it is attached directly.
+    pub vendor_id: u16,
+    /// Product id of that HID node.
+    pub product_id: u16,
+    /// HID++ device index: a receiver slot, or `0xff` for a direct mouse.
+    pub device_index: u8,
+    /// The SmartShift mode read.
+    pub mode: SmartShiftMode,
+    /// Why it was read.
+    pub cause: WheelModeCause,
+}
+
+/// Which SmartShift feature a device's table holds, and where: the wheel
+/// mode is read from it without a root-feature lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) enum SmartShiftIndex {
+    /// `0x2111 SmartShiftWheelEnhanced`.
+    Enhanced(u8),
+    /// `0x2110 SmartShiftWheel`.
+    Legacy(u8),
+}
+
+impl SmartShiftIndex {
+    /// Read the wheel mode at this index.
+    async fn read_mode(
+        self,
+        channel: &Arc<HidppChannel>,
+        device_index: u8,
+    ) -> Result<SmartShiftMode, v20::Hidpp20Error> {
+        let wheel_mode = match self {
+            Self::Enhanced(index) => {
+                SmartShiftEnhancedFeature::new(Arc::clone(channel), device_index, index)
+                    .get_ratchet_control_mode()
+                    .await?
+                    .wheel_mode
+            }
+            Self::Legacy(index) => {
+                SmartShiftFeature::new(Arc::clone(channel), device_index, index)
+                    .get_ratchet_control_mode()
+                    .await?
+                    .wheel_mode
+            }
+        };
+        Ok(crate::write::wheel_mode_to_smartshift(wheel_mode))
+    }
+}
+
+/// How many wheel-mode readings wait for the agent before new ones are
+/// dropped. A person switches the wheel far slower than the agent reads them.
+const WHEEL_MODE_QUEUE: usize = 8;
+
 /// How many battery readings wait for the agent before new ones are dropped.
 /// A device broadcasts on a phase or level change, far slower than the agent
 /// reads them.
@@ -253,6 +326,7 @@ pub struct EventNotifier {
     backlight: watch::Sender<Option<BacklightUpdate>>,
     lock_keys: mpsc::Sender<LockKeyUpdate>,
     batteries: mpsc::Sender<BatteryUpdate>,
+    wheel_modes: mpsc::Sender<WheelModeUpdate>,
     #[cfg(test)]
     observation: Option<Arc<EventObservation>>,
 }
@@ -282,6 +356,12 @@ impl EventNotifier {
             debug!(?update, "lock-key update dropped: indicator not reading");
         }
     }
+
+    fn notify_wheel_mode(&self, update: WheelModeUpdate) {
+        if self.wheel_modes.try_send(update).is_err() {
+            debug!(?update, "wheel-mode update dropped: agent not reading");
+        }
+    }
 }
 
 /// The receiving half of the reconciliation-request queue, the latest
@@ -291,6 +371,7 @@ pub struct EventReceiver {
     backlight: watch::Receiver<Option<BacklightUpdate>>,
     lock_keys: Option<mpsc::Receiver<LockKeyUpdate>>,
     batteries: Option<mpsc::Receiver<BatteryUpdate>>,
+    wheel_modes: Option<mpsc::Receiver<WheelModeUpdate>>,
 }
 
 impl EventReceiver {
@@ -326,6 +407,12 @@ impl EventReceiver {
     pub fn take_batteries(&mut self) -> Option<mpsc::Receiver<BatteryUpdate>> {
         self.batteries.take()
     }
+
+    /// Take the SmartShift readings, independently of inventory. `None` once
+    /// taken: the readings have a single reader.
+    pub fn take_wheel_modes(&mut self) -> Option<mpsc::Receiver<WheelModeUpdate>> {
+        self.wheel_modes.take()
+    }
 }
 
 /// Build the reconciliation, backlight and lock-key channels used by an
@@ -336,12 +423,14 @@ pub fn event_channel() -> (EventNotifier, EventReceiver) {
     let (backlight, backlight_receiver) = watch::channel(None);
     let (lock_keys, lock_key_receiver) = mpsc::channel(LOCK_KEY_QUEUE);
     let (batteries, battery_receiver) = mpsc::channel(BATTERY_QUEUE);
+    let (wheel_modes, wheel_mode_receiver) = mpsc::channel(WHEEL_MODE_QUEUE);
     (
         EventNotifier {
             sender,
             backlight,
             lock_keys,
             batteries,
+            wheel_modes,
             #[cfg(test)]
             observation: None,
         },
@@ -350,6 +439,7 @@ pub fn event_channel() -> (EventNotifier, EventReceiver) {
             backlight: backlight_receiver,
             lock_keys: Some(lock_key_receiver),
             batteries: Some(battery_receiver),
+            wheel_modes: Some(wheel_mode_receiver),
         },
     )
 }
@@ -386,6 +476,7 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
     let (backlight, backlight_receiver) = watch::channel(None);
     let (lock_keys, lock_key_receiver) = mpsc::channel(LOCK_KEY_QUEUE);
     let (batteries, battery_receiver) = mpsc::channel(BATTERY_QUEUE);
+    let (wheel_modes, wheel_mode_receiver) = mpsc::channel(WHEEL_MODE_QUEUE);
     let observation = Arc::new(EventObservation {
         count: AtomicUsize::new(0),
         changed: Notify::new(),
@@ -396,6 +487,7 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
             backlight,
             lock_keys,
             batteries,
+            wheel_modes,
             observation: Some(Arc::clone(&observation)),
         },
         EventReceiver {
@@ -403,6 +495,7 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
             backlight: backlight_receiver,
             lock_keys: Some(lock_key_receiver),
             batteries: Some(battery_receiver),
+            wheel_modes: Some(wheel_mode_receiver),
         },
         EventObserver { observation },
     )
@@ -419,6 +512,8 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
 /// keyboard's disabled keys (`0x4521`), the extended report rate (`0x8061`),
 /// the keyboard backlight (`0x1982`) and the wheel's ratchet (`0x2121`). So
 /// do the keyboard's lock keys (`0x4220`), for the on-screen indicator only.
+/// The SmartShift feature (`0x2111`, else `0x2110`) broadcasts nothing; its
+/// index is here so a ratchet switch can read the mode back.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct EventFeatureIndices {
     pub(super) wireless_status: Option<u8>,
@@ -435,6 +530,7 @@ pub(super) struct EventFeatureIndices {
     pub(super) backlight: Option<u8>,
     pub(super) lock_key_state: Option<u8>,
     pub(super) hires_wheel: Option<u8>,
+    pub(super) smartshift: Option<SmartShiftIndex>,
 }
 
 impl EventFeatureIndices {
@@ -459,6 +555,11 @@ impl EventFeatureIndices {
                 0x1982 => indices.backlight = Some(index),
                 0x4220 => indices.lock_key_state = Some(index),
                 0x2121 => indices.hires_wheel = Some(index),
+                // A device ships one or the other; the enhanced one wins.
+                0x2111 => indices.smartshift = Some(SmartShiftIndex::Enhanced(index)),
+                0x2110 if indices.smartshift.is_none() => {
+                    indices.smartshift = Some(SmartShiftIndex::Legacy(index));
+                }
                 _ => {}
             }
         }
@@ -580,6 +681,8 @@ struct DeviceEvents {
     effect_list: Option<u16>,
     /// Whether that read was started since the device came online.
     effect_list_read: bool,
+    /// Whether the SmartShift mode was read since the device came online.
+    wheel_mode_read: bool,
 }
 
 impl DeviceEvents {
@@ -592,6 +695,8 @@ impl DeviceEvents {
         // The keyboard may have been reconfigured while it was away.
         self.effect_list = None;
         self.effect_list_read = false;
+        // The wheel may have been switched while the mouse was away.
+        self.wheel_mode_read = false;
     }
 }
 
@@ -678,8 +783,47 @@ impl SubscriptionState {
             if source.is_battery() {
                 self.battery_broadcast(raw, source);
             }
+            if source == HidppEventSource::HiResWheelRatchet {
+                self.wheel_switched(v20::Message::from(raw).header().device_index);
+            }
             self.notifier.notify(source);
         }
+    }
+
+    /// Read back the SmartShift mode of `device_index` after its ratchet
+    /// switched, and hand it to the agent.
+    fn wheel_switched(self: &Arc<Self>, device_index: u8) {
+        let Some(smartshift) = self
+            .devices
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|device| device.device_index == device_index)
+            .and_then(|device| device.features.smartshift)
+        else {
+            return;
+        };
+        let (Some(runtime), Some(channel)) = (self.runtime.as_ref(), self.channel.upgrade()) else {
+            return;
+        };
+        let state = Arc::clone(self);
+        runtime.spawn(async move {
+            match smartshift.read_mode(&channel, device_index).await {
+                Ok(mode) => state.publish_wheel_mode(device_index, mode, WheelModeCause::Switched),
+                Err(error) => debug!(device_index, ?error, "SmartShift re-read failed"),
+            }
+        });
+    }
+
+    fn publish_wheel_mode(&self, device_index: u8, mode: SmartShiftMode, cause: WheelModeCause) {
+        debug!(device_index, ?mode, ?cause, "SmartShift mode read");
+        self.notifier.notify_wheel_mode(WheelModeUpdate {
+            vendor_id: self.node.vendor_id,
+            product_id: self.node.product_id,
+            device_index,
+            mode,
+            cause,
+        });
     }
 
     /// Turn a battery broadcast from `device_index` into a reading for the
@@ -968,6 +1112,7 @@ impl EventSubscriptionHandle {
                 lock_keys_connection: 0,
                 effect_list: None,
                 effect_list_read: false,
+                wheel_mode_read: false,
             });
         }
     }
@@ -1090,6 +1235,50 @@ impl EventSubscriptionHandle {
         match feature.get_backlight_config().await {
             Ok(config) => self.record_effect_list(device_index, config.effect_list.bits()),
             Err(error) => debug!(device_index, ?error, "backlight effect list read failed"),
+        }
+    }
+
+    /// The SmartShift feature to read for an `online` mouse whose wheel mode
+    /// has not been read since it came online. An offline mouse reads it
+    /// again when it is back.
+    fn wheel_mode_to_read(&self, device_index: u8, online: bool) -> Option<SmartShiftIndex> {
+        let mut devices = self
+            .state
+            .devices
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let device = devices
+            .iter_mut()
+            .find(|device| device.device_index == device_index)?;
+        if !online {
+            device.wheel_mode_read = false;
+            return None;
+        }
+        let smartshift = device.features.smartshift?;
+        if device.wheel_mode_read {
+            return None;
+        }
+        device.wheel_mode_read = true;
+        Some(smartshift)
+    }
+
+    /// Read the SmartShift mode of an `online` mouse once per connection, so
+    /// the agent has the baseline its first wheel switch is compared with.
+    pub(super) async fn sync_wheel_mode(
+        &self,
+        channel: &Arc<HidppChannel>,
+        device_index: u8,
+        online: bool,
+    ) {
+        let Some(smartshift) = self.wheel_mode_to_read(device_index, online) else {
+            return;
+        };
+        match smartshift.read_mode(channel, device_index).await {
+            Ok(mode) => {
+                self.state
+                    .publish_wheel_mode(device_index, mode, WheelModeCause::Connected);
+            }
+            Err(error) => debug!(device_index, ?error, "SmartShift mode read failed"),
         }
     }
 
@@ -1231,6 +1420,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                smartshift: None,
             }
         );
     }
@@ -1266,6 +1456,7 @@ mod tests {
             lock_keys_connection: 0,
             effect_list: None,
             effect_list_read: false,
+            wheel_mode_read: false,
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: None,
@@ -1281,6 +1472,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                smartshift: None,
             },
         });
         state.receiver_snapshot_depth.store(1, Ordering::Release);
@@ -1312,6 +1504,7 @@ mod tests {
             lock_keys_connection: 0,
             effect_list: None,
             effect_list_read: false,
+            wheel_mode_read: false,
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: Some(7),
@@ -1327,6 +1520,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                smartshift: None,
             },
         });
 
@@ -1387,6 +1581,7 @@ mod tests {
             lock_keys_connection: 0,
             effect_list: None,
             effect_list_read: false,
+            wheel_mode_read: false,
             features: EventFeatureIndices {
                 wireless_status: None,
                 unified_battery: None,
@@ -1402,6 +1597,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                smartshift: None,
             },
         });
         let event = |function_id: u8, software_id: u8, bytes: [u8; 3]| {
@@ -1466,6 +1662,7 @@ mod tests {
             lock_keys_connection: 0,
             effect_list: None,
             effect_list_read: false,
+            wheel_mode_read: false,
             features: EventFeatureIndices {
                 battery_status: Some(4),
                 battery_voltage: Some(6),
@@ -2020,6 +2217,68 @@ mod tests {
 
         assert_eq!(state.decode(lock_report(0, 0x02), false), None);
         assert_eq!(drain(&mut updates), [(LockKey::CapsLock, true)]);
+    }
+
+    #[test]
+    fn the_smartshift_index_prefers_the_enhanced_feature() {
+        let enhanced = EventFeatureIndices::from_feature_ids(&[0x0001, 0x2110, 0x2121, 0x2111]);
+        assert_eq!(enhanced.smartshift, Some(SmartShiftIndex::Enhanced(4)));
+        let enhanced_first = EventFeatureIndices::from_feature_ids(&[0x2111, 0x2110]);
+        assert_eq!(
+            enhanced_first.smartshift,
+            Some(SmartShiftIndex::Enhanced(1))
+        );
+        let legacy = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x2110]);
+        assert_eq!(legacy.smartshift, Some(SmartShiftIndex::Legacy(3)));
+        assert_eq!(
+            EventFeatureIndices::from_feature_ids(&[0x0001, 0x2121]).smartshift,
+            None
+        );
+    }
+
+    #[test]
+    fn the_wheel_mode_is_read_once_per_connection() {
+        let state = state(Some(ReceiverProtocol::Bolt));
+        let handle = EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        };
+        handle.register_device(
+            1,
+            EventFeatureIndices::from_feature_ids(&[0x0001, 0x2121, 0x2111]),
+        );
+        handle.register_device(2, EventFeatureIndices::from_feature_ids(&[0x0001, 0x2121]));
+
+        assert_eq!(
+            handle.wheel_mode_to_read(1, true),
+            Some(SmartShiftIndex::Enhanced(3))
+        );
+        assert_eq!(
+            handle.wheel_mode_to_read(1, true),
+            None,
+            "once per connection"
+        );
+        assert_eq!(
+            handle.wheel_mode_to_read(2, true),
+            None,
+            "a mouse without SmartShift has no mode to read"
+        );
+        assert_eq!(handle.wheel_mode_to_read(9, true), None, "never registered");
+
+        assert_eq!(handle.wheel_mode_to_read(1, false), None, "nothing offline");
+        assert_eq!(
+            handle.wheel_mode_to_read(1, true),
+            Some(SmartShiftIndex::Enhanced(3)),
+            "read again once it is back"
+        );
+        assert_eq!(handle.wheel_mode_to_read(1, true), None);
+
+        // A reconnection between scans, which the scans may never see as
+        // offline, also has it read again.
+        state.forget_lock_keys(1);
+        assert_eq!(
+            handle.wheel_mode_to_read(1, true),
+            Some(SmartShiftIndex::Enhanced(3))
+        );
     }
 
     #[test]

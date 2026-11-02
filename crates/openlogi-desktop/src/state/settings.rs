@@ -445,6 +445,34 @@ impl AppState {
         self.persist_and_reload("connection notifications setting");
         StateEvent::SettingsChanged.into()
     }
+    /// Toggle the overlay's wheel-mode indicator and persist it. The agent
+    /// decides which switches to show, so it reads the new value on config
+    /// reload; while off it shows nothing. An already-set value writes
+    /// nothing and is still reported; disk failures restore the persisted
+    /// value.
+    pub fn commit_wheel_mode_notifications(&mut self, enabled: bool) -> StateEvents {
+        if self.config.app_settings.wheel_mode_notifications == enabled {
+            return StateEvent::SettingsChanged.into();
+        }
+        self.config
+            .edit(|config| config.app_settings.wheel_mode_notifications = enabled);
+        self.persist_and_reload("wheel mode notifications setting");
+        StateEvent::SettingsChanged.into()
+    }
+    /// Toggle the overlay's DPI indicator and persist it. The agent shows it
+    /// for a DPI or precision press, so it reads the new value on config
+    /// reload; while off it shows nothing. An already-set value writes
+    /// nothing and is still reported; disk failures restore the persisted
+    /// value.
+    pub fn commit_dpi_notifications(&mut self, enabled: bool) -> StateEvents {
+        if self.config.app_settings.dpi_notifications == enabled {
+            return StateEvent::SettingsChanged.into();
+        }
+        self.config
+            .edit(|config| config.app_settings.dpi_notifications = enabled);
+        self.persist_and_reload("DPI notifications setting");
+        StateEvent::SettingsChanged.into()
+    }
     /// Toggle the overlay's lock-key indicator and persist it. The agent
     /// decides what the indicator shows, so it reads the new value on config
     /// reload; while off it shows nothing. An already-set value writes nothing

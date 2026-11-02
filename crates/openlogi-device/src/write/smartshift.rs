@@ -123,7 +123,7 @@ fn encode_tunable_torque(torque: TunableTorque) -> TorquePercent {
 /// A future `#[non_exhaustive]` variant maps to [`SmartShiftMode::Ratchet`],
 /// the "safe" clicky default OpenLogi uses elsewhere. (Reserved wire bytes
 /// never reach here — the fork's `get_ratchet_control_mode` rejects them.)
-pub(super) fn wheel_mode_to_smartshift(wheel: WheelMode) -> SmartShiftMode {
+pub(crate) fn wheel_mode_to_smartshift(wheel: WheelMode) -> SmartShiftMode {
     if matches!(wheel, WheelMode::Freespin) {
         SmartShiftMode::Free
     } else {

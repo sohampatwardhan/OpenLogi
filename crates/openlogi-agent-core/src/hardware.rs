@@ -29,8 +29,8 @@ use openlogi_hid::DisableKeysMask;
 use openlogi_hid::{
     CaptureChannelSlot, ChannelRegistry, DeviceIoGate, DeviceRoute, Dpi, FollowerLink,
     FollowerRelease, HidppOperation, HostOs, HostSwitchError, LeadCookie, OsLayoutOutcome,
-    PointerSpeed, ReportRate, ScrollResolution, SharedChannel, SmartShiftStatus, WeakSharedChannel,
-    WriteError,
+    PointerSpeed, ReportRate, ScrollResolution, SharedChannel, SmartShiftMode, SmartShiftStatus,
+    WeakSharedChannel, WriteError,
 };
 use tokio::time::error::Elapsed;
 use tracing::{debug, info, warn};
@@ -696,8 +696,12 @@ fn one_shot_runtime(label: &str) -> Option<tokio::runtime::Runtime> {
 /// Spawn an OS thread that toggles SmartShift (free ↔ ratchet) on `op`'s
 /// device via its current shared channel. Returns immediately; failures
 /// (incl. devices that expose neither `0x2111` nor the older `0x2110`
-/// SmartShift feature) are logged.
-pub fn toggle_smartshift_in_background(op: DeviceOp) {
+/// SmartShift feature) are logged. `on_toggled` gets the mode the mouse
+/// reports after the write.
+pub fn toggle_smartshift_in_background(
+    op: DeviceOp,
+    on_toggled: impl FnOnce(SmartShiftMode) + Send + 'static,
+) {
     let index = op.route.device_index();
     op.spawn_write(
         "SmartShift toggle",
@@ -705,6 +709,7 @@ pub fn toggle_smartshift_in_background(op: DeviceOp) {
         move |result| {
             log_outcome(index, "SmartShift toggle", result, |mode| {
                 debug!(index, ?mode, "SmartShift toggled");
+                on_toggled(mode);
             });
         },
     );
@@ -1432,15 +1437,15 @@ pub(crate) fn restore_dpi_in_background(
 /// DPI `step` picks from that reading, unless a newer pointer-speed write was
 /// requested after `ticket`, before or during the read. For a preset step on
 /// a mouse whose DPI OpenLogi never set. As a pointer-speed write does, it
-/// then sets the DPI LED when `led` says, and runs `on_applied` once it
-/// landed. `on_failed` gets the DPI `step` picked when the mouse rejected it
+/// then sets the DPI LED when `led` says, and runs `on_applied` with the DPI
+/// once it landed. `on_failed` gets the DPI `step` picked when the mouse rejected it
 /// or the write timed out.
 pub(crate) fn step_dpi_in_background(
     op: DeviceOp,
     ticket: WriteTicket,
     led: Option<bool>,
     step: impl FnOnce(Dpi) -> Option<Dpi> + Send + 'static,
-    on_applied: impl FnOnce() + Send + 'static,
+    on_applied: impl FnOnce(Dpi) + Send + 'static,
     on_failed: impl FnOnce(Dpi) + Send + 'static,
 ) {
     let index = op.route.device_index();
@@ -1484,7 +1489,7 @@ pub(crate) fn step_dpi_in_background(
             log_outcome(index, "DPI step", result, |stepped| match stepped {
                 Some(Some((reading, dpi))) => {
                     debug!(index, %reading, %dpi, "DPI stepped from the mouse's reading");
-                    on_applied();
+                    on_applied(dpi);
                 }
                 Some(None) => debug!(index, "no DPI preset to step to"),
                 None => debug!(index, "DPI step superseded by a newer write"),

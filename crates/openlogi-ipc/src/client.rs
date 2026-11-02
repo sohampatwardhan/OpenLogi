@@ -34,8 +34,9 @@ use tarpc::context::{self, Context};
 
 use crate::{
     AgentClient, BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    ConnectionObservation, Generation, LockKeyObservation, NoticeObservation, OBSERVE_HOLD,
-    Observation, PROTOCOL_VERSION, RingObservation, UiChromeObservation, transport,
+    ConnectionObservation, DpiObservation, Generation, LockKeyObservation, NoticeObservation,
+    OBSERVE_HOLD, Observation, PROTOCOL_VERSION, RingObservation, UiChromeObservation,
+    WheelModeObservation, transport,
 };
 
 /// Why a client could not be established.
@@ -258,6 +259,18 @@ impl Stamped for ConnectionObservation {
     }
 }
 
+impl Stamped for WheelModeObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
+impl Stamped for DpiObservation {
+    fn generation(&self) -> Generation {
+        self.generation
+    }
+}
+
 /// One connection's view of the agent's generation counter.
 ///
 /// Starts at 0 — "I have seen nothing" — so the first answer is the agent's
@@ -430,6 +443,28 @@ impl Observer<ConnectionObservation> {
         Self::new(client, |client, since| {
             let client = client.clone();
             Box::pin(async move { client.observe_connection(observe_context(), since).await })
+        })
+    }
+}
+
+impl Observer<WheelModeObservation> {
+    /// Observe the transient wheel-mode indicator over `client`.
+    #[must_use]
+    pub fn wheel_mode(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move { client.observe_wheel_mode(observe_context(), since).await })
+        })
+    }
+}
+
+impl Observer<DpiObservation> {
+    /// Observe the transient DPI indicator over `client`.
+    #[must_use]
+    pub fn dpi(client: AgentClient) -> Self {
+        Self::new(client, |client, since| {
+            let client = client.clone();
+            Box::pin(async move { client.observe_dpi(observe_context(), since).await })
         })
     }
 }

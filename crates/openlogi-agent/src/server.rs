@@ -32,10 +32,10 @@ use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
     BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
-    ConfigReloadError, ConnectionObservation, Generation, Identity, LockKeyObservation,
-    MonitorEvent, NoticeObservation, Observation, PROTOCOL_VERSION, PairingCommandError,
-    PairingFailure, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
-    UiChromeObservation,
+    ConfigReloadError, ConnectionObservation, DpiObservation, Generation, Identity,
+    LockKeyObservation, MonitorEvent, NoticeObservation, Observation, PROTOCOL_VERSION,
+    PairingCommandError, PairingFailure, PairingUpdate, RingObservation, SavedConfig,
+    SavedConfigVerdict, UiChromeObservation, WheelModeObservation,
 };
 use succession::Compat;
 
@@ -245,12 +245,21 @@ impl Agent for AgentServer {
         route: DeviceRoute,
         status: SmartShiftStatus,
     ) -> Result<(), WriteError> {
-        self.shared
+        // A mode set here is no wheel switch: recorded before the write, so
+        // the mouse's broadcast for it shows nothing.
+        let wheel_mode = self.observable.wheel_mode();
+        wheel_mode.written(&route, status.mode);
+        let written = self
+            .shared
             .device(&route)
             .run(HidppOperation::WriteSmartShift, |c| async move {
                 openlogi_hid::set_smartshift_on(&c, status).await
             })
-            .await
+            .await;
+        if written.is_err() {
+            wheel_mode.write_failed(&route);
+        }
+        written
     }
 
     async fn read_dpi(self, _: Context, route: DeviceRoute) -> Result<DpiInfo, WriteError> {
@@ -507,6 +516,14 @@ impl Agent for AgentServer {
 
     async fn observe_connection(self, _: Context, since: Generation) -> ConnectionObservation {
         self.observable.connection().observe(since).await
+    }
+
+    async fn observe_wheel_mode(self, _: Context, since: Generation) -> WheelModeObservation {
+        self.observable.wheel_mode().observe(since).await
+    }
+
+    async fn observe_dpi(self, _: Context, since: Generation) -> DpiObservation {
+        self.observable.dpi().observe(since).await
     }
 
     async fn next_pairing(self, _: Context) -> Option<PairingUpdate> {

@@ -335,6 +335,16 @@ pub struct AppSettings {
     /// the agent starts, or when the computer wakes, are not changes.
     #[serde(default = "default_true")]
     pub connection_notifications: bool,
+    /// Whether the overlay briefly shows a mouse's wheel switching between
+    /// free spin and ratchet, from its own wheel button or a button bound to
+    /// Toggle SmartShift. **On by default.** A mode set in the settings app,
+    /// or the mode a mouse has when it connects, is not a change.
+    #[serde(default = "default_true")]
+    pub wheel_mode_notifications: bool,
+    /// Whether the overlay briefly shows the DPI a DPI button or action
+    /// sets, and precision mode turning on or off. **On by default.**
+    #[serde(default = "default_true")]
+    pub dpi_notifications: bool,
 }
 
 const SENSITIVITY_MIN: u8 = 1;
@@ -545,6 +555,8 @@ impl Default for AppSettings {
             charging_notifications: true,
             low_battery_threshold: LowBatteryThreshold::DEFAULT,
             connection_notifications: true,
+            wheel_mode_notifications: true,
+            dpi_notifications: true,
         }
     }
 }
@@ -822,8 +834,10 @@ impl Default for MomentumScrolling {
 /// [`AppSettings::low_battery_notifications`],
 /// [`AppSettings::animate_desktop_switch`],
 /// [`AppSettings::charging_notifications`],
-/// [`AppSettings::connection_notifications`]), so configs predating a field keep
-/// the out-of-the-box behavior.
+/// [`AppSettings::connection_notifications`],
+/// [`AppSettings::wheel_mode_notifications`],
+/// [`AppSettings::dpi_notifications`]), so configs predating a field keep the
+/// out-of-the-box behavior.
 fn default_true() -> bool {
     true
 }

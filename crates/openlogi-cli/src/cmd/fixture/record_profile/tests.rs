@@ -478,6 +478,22 @@ impl Agent for TestAgent {
         unreachable!("profile capture must not inspect the connection indicator")
     }
 
+    async fn observe_wheel_mode(
+        self,
+        _: TarpcContext,
+        _since: Generation,
+    ) -> openlogi_ipc::WheelModeObservation {
+        unreachable!("profile capture must not inspect the wheel-mode indicator")
+    }
+
+    async fn observe_dpi(
+        self,
+        _: TarpcContext,
+        _since: Generation,
+    ) -> openlogi_ipc::DpiObservation {
+        unreachable!("profile capture must not inspect the DPI indicator")
+    }
+
     async fn read_force_sensing(
         self,
         _: TarpcContext,

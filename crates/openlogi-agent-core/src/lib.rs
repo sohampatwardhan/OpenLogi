@@ -17,6 +17,7 @@ pub mod capture_plan;
 pub mod charging;
 pub mod connection;
 mod dpi;
+pub mod dpi_popup;
 pub mod event_monitor;
 pub mod flow;
 pub mod hardware;
@@ -29,6 +30,7 @@ pub mod receiver_access;
 pub mod runtime;
 pub mod ui_chrome;
 pub mod watchers;
+pub mod wheel_mode;
 
 pub use dpi::{DpiCycleState, DpiCycles};
 pub use pointer_speed::PointerSpeeds;

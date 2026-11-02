@@ -63,6 +63,7 @@ use crate::watchers::inventory::InventoryRefresh;
 use crate::watchers::key_display::{KeyDisplaySpec, KeyFace, SharedKeyDisplaySpecs};
 use crate::watchers::keyboard::{KeyboardSpec, SharedKeyboardSpecs};
 use crate::watchers::light::{WatchedLight, WatchedLights};
+use crate::wheel_mode::WheelNode;
 use crate::{DpiCycleState, DpiCycles, PointerSpeeds};
 
 mod devices;
@@ -791,7 +792,16 @@ impl Orchestrator {
         orch.rebuild();
         orch.observable
             .set_launch_at_login(orch.config.app_settings.launch_at_login);
+        orch.configure_popups();
         orch
+    }
+
+    /// Hand the popups the agent shows from presses their switches and the
+    /// UI language.
+    fn configure_popups(&self) {
+        let settings = &self.config.app_settings;
+        self.observable.wheel_mode().configure(settings);
+        self.observable.dpi().configure(settings);
     }
 
     /// A cheap clone of the shared `Arc`s to hand to the watchers and hook.
@@ -1412,6 +1422,9 @@ impl Orchestrator {
             standalone: standalone.to_vec(),
         };
         self.publish_inventory();
+        self.observable
+            .wheel_mode()
+            .set_routes(wheel_routes(inventories));
         let devices = build_devices(&self.config, inventories, standalone);
         // Retire departing routes before forgetting them. Offline routes that
         // remain in inventory still observe config changes without doing I/O.
@@ -1853,6 +1866,13 @@ impl Orchestrator {
                 .and_then(|d| d.effective_smartshift(&route_key))
                 .map(openlogi_hid::SmartShiftStatus::from),
         };
+        // The replayed mode is no wheel switch: recorded before the write, so
+        // the mouse's broadcast for it shows nothing.
+        if let Some(smartshift) = settings.smartshift {
+            self.observable
+                .wheel_mode()
+                .written(&route, smartshift.mode);
+        }
         // The saved DPI goes out with the speed write on a DPI mouse.
         let written_dpi = settings
             .dpi
@@ -2296,6 +2316,7 @@ impl Orchestrator {
         openlogi_inject::set_desktop_switch(desktop_switch(&self.config.app_settings));
         self.observable
             .set_launch_at_login(self.config.app_settings.launch_at_login);
+        self.configure_popups();
         let retained_overrides: HashSet<String> = self
             .manual_light_overrides
             .keys()
@@ -2642,6 +2663,28 @@ fn publish_arc_if_changed<T: PartialEq>(publication: &watch::Sender<Arc<T>>, val
         *current = Arc::new(value);
         true
     });
+}
+
+/// The HID node and device index each paired route in `inventories` reaches,
+/// for the wheel-mode popup: a mouse's broadcasts name it by node, the
+/// agent's writes by route.
+fn wheel_routes(inventories: &[DeviceInventory]) -> Vec<(DeviceRoute, WheelNode)> {
+    inventories
+        .iter()
+        .flat_map(|inv| {
+            inv.paired.iter().filter_map(move |paired| {
+                let route = DeviceRoute::for_slot(inv, paired.slot)?;
+                Some((
+                    route,
+                    WheelNode {
+                        vendor_id: inv.receiver.vendor_id,
+                        product_id: inv.receiver.product_id,
+                        device_index: paired.slot,
+                    },
+                ))
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

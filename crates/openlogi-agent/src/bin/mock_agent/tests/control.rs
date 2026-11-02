@@ -920,3 +920,132 @@ async fn disconnect_and_connect_commands_show_the_connection_popup() {
         .expect("disconnect while muted");
     assert!(!muted.contains("showing Disconnected"), "{muted}");
 }
+
+#[test]
+fn wheel_dpi_and_precision_commands_parse() {
+    use openlogi_core::hid::SmartShiftMode;
+
+    assert_eq!(
+        parse("wheel free"),
+        Ok(Some(Command::Wheel(SmartShiftMode::Free)))
+    );
+    assert_eq!(
+        parse("wheel ratchet"),
+        Ok(Some(Command::Wheel(SmartShiftMode::Ratchet)))
+    );
+    assert_eq!(
+        parse("dpi 1600 800 1600 3200"),
+        Ok(Some(Command::Dpi {
+            dpi: Dpi::new(1600),
+            presets: vec![Dpi::new(800), Dpi::new(1600), Dpi::new(3200)],
+        }))
+    );
+    assert_eq!(
+        parse("dpi 800"),
+        Ok(Some(Command::Dpi {
+            dpi: Dpi::new(800),
+            presets: Vec::new(),
+        }))
+    );
+    assert_eq!(parse("precision on"), Ok(Some(Command::Precision(true))));
+    assert_eq!(parse("precision off"), Ok(Some(Command::Precision(false))));
+    for bad in [
+        "wheel",
+        "wheel fast",
+        "dpi",
+        "dpi fast",
+        "dpi 1600 800 fast",
+        "dpi 1600 800 3200",
+        "precision",
+    ] {
+        assert!(parse(bad).is_err(), "{bad}");
+    }
+}
+
+#[tokio::test]
+async fn the_wheel_command_shows_a_switch_once() {
+    use openlogi_core::hid::SmartShiftMode;
+
+    let agent = MockAgent::new(test_state());
+    let shown = agent
+        .apply(
+            Command::Wheel(SmartShiftMode::Free),
+            &AppSettings::default(),
+        )
+        .await
+        .expect("wheel free");
+    assert!(shown.contains("showing wheel Free"), "{shown}");
+    let observed = agent
+        .clone()
+        .observe_wheel_mode(tarpc::context::current(), 0)
+        .await;
+    assert_eq!(observed.shown, Some(SmartShiftMode::Free));
+
+    let repeat = agent
+        .apply(
+            Command::Wheel(SmartShiftMode::Free),
+            &AppSettings::default(),
+        )
+        .await
+        .expect("wheel free again");
+    assert!(repeat.contains("not shown"), "{repeat}");
+
+    let quiet = AppSettings {
+        wheel_mode_notifications: false,
+        ..AppSettings::default()
+    };
+    let muted = agent
+        .apply(Command::Wheel(SmartShiftMode::Ratchet), &quiet)
+        .await
+        .expect("wheel ratchet while muted");
+    assert!(muted.contains("not shown"), "{muted}");
+}
+
+#[tokio::test]
+async fn the_dpi_and_precision_commands_reach_the_overlay() {
+    use openlogi_ipc::DpiPopup;
+
+    let agent = MockAgent::new(test_state());
+    let presets = vec![Dpi::new(800), Dpi::new(1600)];
+    agent
+        .apply(
+            Command::Dpi {
+                dpi: Dpi::new(1600),
+                presets: presets.clone(),
+            },
+            &AppSettings::default(),
+        )
+        .await
+        .expect("dpi");
+    let first = agent
+        .clone()
+        .observe_dpi(tarpc::context::current(), 0)
+        .await;
+    assert_eq!(
+        first.shown,
+        Some(DpiPopup::Preset {
+            dpi: Dpi::new(1600),
+            presets,
+        })
+    );
+
+    agent
+        .apply(Command::Precision(true), &AppSettings::default())
+        .await
+        .expect("precision on");
+    let second = agent
+        .clone()
+        .observe_dpi(tarpc::context::current(), first.generation)
+        .await;
+    assert_eq!(second.shown, Some(DpiPopup::Precision { engaged: true }));
+
+    let quiet = AppSettings {
+        dpi_notifications: false,
+        ..AppSettings::default()
+    };
+    let muted = agent
+        .apply(Command::Precision(false), &quiet)
+        .await
+        .expect("precision off while muted");
+    assert!(muted.contains("not shown"), "{muted}");
+}

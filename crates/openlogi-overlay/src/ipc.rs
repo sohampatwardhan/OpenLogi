@@ -19,8 +19,8 @@ use openlogi_core::binding::ActionRingSlot;
 use openlogi_ipc::client::{self, ConnectError, Observer, Stamped};
 use openlogi_ipc::{
     ActionRingInvocation, AgentClient, BacklightEffectObservation, BacklightObservation,
-    ChargingObservation, ClientKind, ConnectionObservation, LockKeyObservation, NoticeObservation,
-    RingObservation, UiChromeObservation,
+    ChargingObservation, ClientKind, ConnectionObservation, DpiObservation, LockKeyObservation,
+    NoticeObservation, RingObservation, UiChromeObservation, WheelModeObservation,
 };
 use succession::Standing;
 use tarpc::context;
@@ -75,6 +75,12 @@ pub(crate) struct Handle {
     /// The connection popup the agent says should be showing. `None` inside
     /// the observation is no indicator, which is also how one ends.
     pub(crate) connection: mpsc::UnboundedReceiver<ConnectionObservation>,
+    /// The wheel-mode popup the agent says should be showing. `None` inside
+    /// the observation is no indicator, which is also how one ends.
+    pub(crate) wheel_mode: mpsc::UnboundedReceiver<WheelModeObservation>,
+    /// The DPI popup the agent says should be showing. `None` inside the
+    /// observation is no indicator, which is also how one ends.
+    pub(crate) dpi: mpsc::UnboundedReceiver<DpiObservation>,
     /// Where the view reports hover, activation, and cancellation.
     pub(crate) commands: mpsc::UnboundedSender<OverlayCommand>,
 }
@@ -90,6 +96,8 @@ pub(crate) fn spawn() -> Handle {
     let (chrome_tx, ui_chrome) = mpsc::unbounded_channel();
     let (charging_tx, charging) = mpsc::unbounded_channel();
     let (connection_tx, connection) = mpsc::unbounded_channel();
+    let (wheel_mode_tx, wheel_mode) = mpsc::unbounded_channel();
+    let (dpi_tx, dpi) = mpsc::unbounded_channel();
     let (commands, mut command_rx) = mpsc::unbounded_channel();
     let started = openlogi_core::worker::spawn("openlogi-overlay-ipc", move |runtime| {
         runtime.block_on(async {
@@ -118,6 +126,10 @@ pub(crate) fn spawn() -> Handle {
                 observe(connect, CONNECTION, |observed| connection_tx
                     .send(observed)
                     .is_ok()),
+                observe(connect, WHEEL_MODE, |observed| wheel_mode_tx
+                    .send(observed)
+                    .is_ok()),
+                observe(connect, DPI, |observed| dpi_tx.send(observed).is_ok()),
                 send_commands(&mut command_rx)
             );
         });
@@ -134,6 +146,8 @@ pub(crate) fn spawn() -> Handle {
         ui_chrome,
         charging,
         connection,
+        wheel_mode,
+        dpi,
         commands,
     }
 }
@@ -209,6 +223,20 @@ const CONNECTION: Cell<ConnectionObservation> = Cell {
     lost: Some(no_connection),
 };
 
+/// The wheel-mode indicator, which the agent hides when its time is up.
+const WHEEL_MODE: Cell<WheelModeObservation> = Cell {
+    open: Observer::wheel_mode,
+    what: "wheel mode",
+    lost: Some(no_wheel_mode),
+};
+
+/// The DPI indicator, which the agent hides when its time is up.
+const DPI: Cell<DpiObservation> = Cell {
+    open: Observer::dpi,
+    what: "DPI",
+    lost: Some(no_dpi),
+};
+
 /// The observation that closes the indicator when the agent that was driving
 /// it is gone. The generation is meaningless to the window, which only reads
 /// `visible`.
@@ -268,6 +296,26 @@ const fn no_charging() -> ChargingObservation {
 /// gone. The window reads only `shown`.
 const fn no_connection() -> ConnectionObservation {
     ConnectionObservation {
+        generation: 0,
+        shown: None,
+        language: None,
+    }
+}
+
+/// The observation that closes the wheel-mode indicator of an agent that is
+/// gone. The window reads only `shown`.
+const fn no_wheel_mode() -> WheelModeObservation {
+    WheelModeObservation {
+        generation: 0,
+        shown: None,
+        language: None,
+    }
+}
+
+/// The observation that closes the DPI indicator of an agent that is gone.
+/// The window reads only `shown`.
+const fn no_dpi() -> DpiObservation {
+    DpiObservation {
         generation: 0,
         shown: None,
         language: None,

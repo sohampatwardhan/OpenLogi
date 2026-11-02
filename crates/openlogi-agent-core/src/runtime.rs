@@ -30,7 +30,8 @@ use crate::hardware::{
 };
 use crate::pointer_speed::{PrecisionPress, Restore, ShiftRestore, SpeedPlace, SpeedWrite};
 use crate::{DpiCycleState, DpiCycles, PointerSpeeds};
-use openlogi_hid::{DeviceRoute, Dpi};
+use openlogi_hid::{DeviceRoute, Dpi, SmartShiftMode};
+use openlogi_ipc::DpiPopup;
 
 /// Wait for a runtime worker's next command, or until its earliest deadline.
 ///
@@ -63,8 +64,10 @@ pub enum PageTurn {
 
 /// An action the agent itself carries out rather than the OS injector,
 /// handed from the dispatcher to the agent's lifecycle loop, which owns the
-/// state it changes. Each carries the config key of the device it was pressed
-/// on, when the source knows one.
+/// state it changes. Each press carries the config key of the device it was
+/// pressed on, when the source knows one. A press's popup rides here too, so
+/// it shows from the agent's runtime rather than from the one-shot runtime
+/// of the write that landed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionRequest {
     /// Open the Actions Ring ([`Action::ShowActionsRing`]).
@@ -79,6 +82,15 @@ pub enum ActionRequest {
         /// Which way.
         turn: PageTurn,
     },
+    /// A bound Toggle SmartShift switched the wheel at `route` to `mode`.
+    WheelModeToggled {
+        /// The mouse written.
+        route: DeviceRoute,
+        /// The mode it reports after the write.
+        mode: SmartShiftMode,
+    },
+    /// A DPI preset action landed, or precision mode turned on or off.
+    ShowDpi(DpiPopup),
 }
 
 /// Application identity captured with a physical press and retained through
@@ -207,7 +219,15 @@ impl ActionExecutor {
         };
         info!(on, target = ?write.target, "precision mode toggled → writing pointer speed");
         self.write_speed(write);
+        self.request(ActionRequest::ShowDpi(DpiPopup::Precision { engaged: on }));
         true
+    }
+
+    /// Hand `request` to the agent's lifecycle loop.
+    fn request(&self, request: ActionRequest) {
+        if self.requests.send(request).is_err() {
+            debug!("agent runtime unavailable — request dropped");
+        }
     }
 
     /// Write `write` in the background, and settle the restore it carries
@@ -218,16 +238,21 @@ impl ActionExecutor {
 
     /// [`Self::write_speed`], first reading the sensor DPI into `before`.
     fn write_speed_reading(&self, write: SpeedWrite, before: Option<DpiBeforeShift>) {
-        self.write_speed_then(write, before, || {});
+        self.write_speed_then(write, before, || {}, || {});
     }
 
-    /// Write the DPI a preset action picked. If the mouse rejects it, the
-    /// cache forgets that DPI, so a DPI shift reads the mouse instead.
-    fn write_preset(&self, route: &DeviceRoute, dpi: Dpi) {
+    /// Write the DPI a preset action picked, and show it once the mouse
+    /// took it. If the mouse rejects it, the cache forgets that DPI, so a
+    /// DPI shift reads the mouse instead.
+    fn write_preset(&self, route: &DeviceRoute, dpi: Dpi, presets: Vec<Dpi>) {
         let rejected = self.preset_rejected(route.clone());
+        let requests = self.requests.clone();
         self.write_speed_then(
             self.pointer_speeds.preset_write(route, dpi),
             None,
+            move || {
+                let _ = requests.send(ActionRequest::ShowDpi(DpiPopup::Preset { dpi, presets }));
+            },
             move || {
                 rejected(dpi);
             },
@@ -245,12 +270,13 @@ impl ActionExecutor {
         }
     }
 
-    /// [`Self::write_speed_reading`], running `on_failed` when the mouse
-    /// rejects the write or it times out.
+    /// [`Self::write_speed_reading`], running `on_applied` once the write
+    /// landed and `on_failed` when the mouse rejects it or it times out.
     fn write_speed_then(
         &self,
         write: SpeedWrite,
         before: Option<DpiBeforeShift>,
+        on_applied: impl FnOnce() + Send + 'static,
         on_failed: impl FnOnce() + Send + 'static,
     ) {
         let speeds = Arc::clone(&self.pointer_speeds);
@@ -271,6 +297,7 @@ impl ActionExecutor {
                 if let Some(restore) = restore {
                     speeds.restored(&restore);
                 }
+                on_applied();
             },
             on_failed,
         );
@@ -340,7 +367,10 @@ impl ActionExecutor {
             led,
         } = self.pointer_speeds.preset_place(&route);
         let cycles = Arc::clone(&self.dpi_cycle);
+        let applied_cycles = Arc::clone(&self.dpi_cycle);
+        let applied_key = key.clone();
         let speeds = Arc::clone(&self.pointer_speeds);
+        let requests = self.requests.clone();
         step_dpi_in_background(
             self.access.op(&route),
             ticket,
@@ -349,10 +379,15 @@ impl ActionExecutor {
                 let mut cycles = cycles.write().ok()?;
                 step(cycles.by_key.get_mut(&key)?, reading).map(|(dpi, _)| dpi)
             },
-            move || {
+            move |dpi| {
                 if let Some(restore) = restore {
                     speeds.restored(&restore);
                 }
+                let presets = applied_cycles
+                    .read()
+                    .map(|cycles| cycles.presets_of(Some(applied_key.as_str())))
+                    .unwrap_or_default();
+                let _ = requests.send(ActionRequest::ShowDpi(DpiPopup::Preset { dpi, presets }));
             },
             self.preset_rejected(route.clone()),
         );
@@ -414,7 +449,11 @@ impl ActionExecutor {
                     .and_then(|cycles| cycles.target_for(device_key));
                 if let Some(target) = target {
                     info!("SmartShift toggle → flipping wheel mode");
-                    toggle_smartshift_in_background(self.access.op(&target));
+                    let requests = self.requests.clone();
+                    let route = target.clone();
+                    toggle_smartshift_in_background(self.access.op(&target), move |mode| {
+                        let _ = requests.send(ActionRequest::WheelModeToggled { route, mode });
+                    });
                 } else {
                     debug!("no target device — SmartShift toggle skipped");
                 }
@@ -453,20 +492,30 @@ impl ActionExecutor {
                 None
             }
         };
-        self.write_dpi_action(action, next);
+        self.write_dpi_action(action, device_key, next);
     }
 
-    /// Write the DPI a preset action picked, `next`; `None` when it had no
-    /// preset to pick.
-    fn write_dpi_action(&self, action: &Action, next: Option<(Dpi, Option<DeviceRoute>)>) {
+    /// Write the DPI a preset action picked on `device_key`, `next`; `None`
+    /// when it had no preset to pick.
+    fn write_dpi_action(
+        &self,
+        action: &Action,
+        device_key: Option<&str>,
+        next: Option<(Dpi, Option<DeviceRoute>)>,
+    ) {
         if let Some((dpi, target)) = next {
             // No target: a dev environment without a real device.
             if let Some(target) = target {
                 info!(%dpi, "DPI action → writing to device");
+                let presets = self
+                    .dpi_cycle
+                    .read()
+                    .map(|cycles| cycles.presets_of(device_key))
+                    .unwrap_or_default();
                 // Numbered with the pointer-speed writes: on a DPI mouse it
                 // ends precision mode, and an older precision write must not
                 // land after it.
-                self.write_preset(&target, dpi);
+                self.write_preset(&target, dpi, presets);
             } else {
                 debug!(%dpi, "no target device — DPI write skipped");
             }
@@ -973,9 +1022,19 @@ mod tests {
     static BROWSER_NAV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn executor_with(pointer_speeds: Arc<PointerSpeeds>) -> ActionExecutor {
+        executor_and_requests(pointer_speeds).0
+    }
+
+    /// An executor, and the requests it hands the lifecycle loop.
+    fn executor_and_requests(
+        pointer_speeds: Arc<PointerSpeeds>,
+    ) -> (
+        ActionExecutor,
+        tokio::sync::mpsc::UnboundedReceiver<ActionRequest>,
+    ) {
         let (_signal, device_io) = openlogi_hid::device_io_channel();
-        let (requests, _requests_rx) = tokio::sync::mpsc::unbounded_channel();
-        ActionExecutor {
+        let (requests, requests_rx) = tokio::sync::mpsc::unbounded_channel();
+        let executor = ActionExecutor {
             dpi_cycle: Arc::default(),
             pointer_speeds,
             access: DeviceAccess {
@@ -986,7 +1045,46 @@ mod tests {
                 transport_turns: crate::hardware::TransportTurns::default(),
             },
             requests,
-        }
+        };
+        (executor, requests_rx)
+    }
+
+    /// Each precision press asks the lifecycle loop for the DPI popup with
+    /// the new state; a press that toggles nothing asks for none.
+    #[test]
+    fn a_precision_press_shows_the_new_state() {
+        let pointer_speeds = Arc::new(PointerSpeeds::default());
+        pointer_speeds.publish(
+            None,
+            [crate::pointer_speed::SpeedMouse {
+                key: "ergo".to_string(),
+                route: openlogi_core::hid::DeviceRoute::Unifying {
+                    receiver_uid: "UNIFYING".to_string(),
+                    slot: 1,
+                },
+                saved: crate::pointer_speed::SavedSpeed::Scaled(None),
+            }],
+        );
+        let (executor, mut requests) = executor_and_requests(pointer_speeds);
+
+        executor.dispatch(&Action::TogglePrecisionMode, Some("ergo"));
+        assert_eq!(
+            requests.try_recv().ok(),
+            Some(ActionRequest::ShowDpi(DpiPopup::Precision {
+                engaged: true
+            }))
+        );
+        executor.dispatch(&Action::CycleDpiPresets, Some("ergo"));
+        assert_eq!(
+            requests.try_recv().ok(),
+            Some(ActionRequest::ShowDpi(DpiPopup::Precision {
+                engaged: false
+            })),
+            "the MX Ergo's DPI button is its precision button"
+        );
+
+        executor.dispatch(&Action::TogglePrecisionMode, Some("master"));
+        assert!(requests.try_recv().is_err(), "no scaled mouse, no popup");
     }
 
     /// The MX Ergo's precision button keeps its default Cycle DPI Presets

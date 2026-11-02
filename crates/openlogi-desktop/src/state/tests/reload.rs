@@ -21,6 +21,8 @@ fn read_only_config_rolls_back_mutations_and_does_not_reload_agent() {
     let _ = state.commit_animate_desktop_switch(false);
     let _ = state.commit_charging_notifications(false);
     let _ = state.commit_connection_notifications(false);
+    let _ = state.commit_wheel_mode_notifications(false);
+    let _ = state.commit_dpi_notifications(false);
 
     assert_eq!(
         state.app_settings().thumbwheel_sensitivity,
@@ -39,6 +41,8 @@ fn read_only_config_rolls_back_mutations_and_does_not_reload_agent() {
     assert!(state.app_settings().animate_desktop_switch);
     assert!(state.app_settings().charging_notifications);
     assert!(state.app_settings().connection_notifications);
+    assert!(state.app_settings().wheel_mode_notifications);
+    assert!(state.app_settings().dpi_notifications);
     assert_eq!(state.config_issue(), Some("invalid config"));
     assert!(receiver.try_recv().is_err());
 }
@@ -374,6 +378,58 @@ fn connection_notifications_persist_and_reload_only_when_changed() {
         [StateEvent::SettingsChanged]
     );
     assert!(receiver.try_recv().is_err());
+}
+
+#[test]
+fn wheel_mode_and_dpi_notifications_persist_and_reload_only_when_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(openlogi_core::paths::CONFIG_FILE);
+    let (config, file) = ConfigFile::load_from_path(&path).unwrap();
+    let resolver = AssetResolver::new();
+    let (commands, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let mut state = AppState::new(Sources {
+        persistence: ConfigPersistence::UserFile(file),
+        ..Sources::in_memory(config, &resolver, commands)
+    });
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(crate::services::ipc::Command::LoadConfig(_))
+    ));
+    assert!(state.app_settings().wheel_mode_notifications);
+    assert!(state.app_settings().dpi_notifications);
+
+    assert_eq!(
+        state.commit_wheel_mode_notifications(false),
+        [StateEvent::SettingsChanged]
+    );
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(crate::services::ipc::Command::ReloadConfig(_))
+    ));
+    assert_eq!(
+        state.commit_dpi_notifications(false),
+        [StateEvent::SettingsChanged]
+    );
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(crate::services::ipc::Command::ReloadConfig(_))
+    ));
+    let saved = Config::load_from_path(&path).unwrap().app_settings;
+    assert!(!saved.wheel_mode_notifications);
+    assert!(!saved.dpi_notifications);
+
+    assert_eq!(
+        state.commit_wheel_mode_notifications(false),
+        [StateEvent::SettingsChanged]
+    );
+    assert_eq!(
+        state.commit_dpi_notifications(false),
+        [StateEvent::SettingsChanged]
+    );
+    assert!(
+        receiver.try_recv().is_err(),
+        "an unchanged value reloads nothing"
+    );
 }
 
 /// A live language switch runs inside `AppState::update`, and the menu rebuild

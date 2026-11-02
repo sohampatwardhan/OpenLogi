@@ -20,17 +20,20 @@ mod backlight;
 mod backlight_effect;
 mod charging;
 mod connection;
+mod dpi;
 mod edge;
 mod icons;
 mod ipc;
 mod lock_key;
 mod notice;
+mod option_row;
 mod osd;
 mod platform;
 mod popup;
 mod preview;
 mod ring;
 mod session;
+mod wheel_mode;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -75,6 +78,8 @@ fn main() -> Result<()> {
         mut ui_chrome,
         mut charging,
         mut connection,
+        mut wheel_mode,
+        mut dpi,
         commands,
     } = ipc::spawn();
 
@@ -123,6 +128,24 @@ fn main() -> Result<()> {
             while let Some(observed) = connection.recv().await {
                 openlogi_core::locale::activate(observed.language.as_deref());
                 cx.update(|cx| connection::present(cx, observed.shown));
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            // The agent's timer is the indicator's only clock: it reports
+            // nothing showing when the time is up, or when it is gone.
+            while let Some(observed) = wheel_mode.recv().await {
+                openlogi_core::locale::activate(observed.language.as_deref());
+                cx.update(|cx| wheel_mode::present(cx, observed.shown));
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            // The agent's timer is the indicator's only clock: it reports
+            // nothing showing when the time is up, or when it is gone.
+            while let Some(observed) = dpi.recv().await {
+                openlogi_core::locale::activate(observed.language.as_deref());
+                cx.update(|cx| dpi::present(cx, observed.shown));
             }
         })
         .detach();

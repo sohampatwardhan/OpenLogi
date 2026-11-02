@@ -36,7 +36,9 @@ use openlogi_agent_core::watchers::foreground_app::ForegroundUpdate;
 use openlogi_agent_core::watchers::input_monitoring::InputMonitoring;
 use openlogi_agent_core::watchers::inventory::{InventoryEvent, InventoryRefresh};
 use openlogi_agent_core::watchers::light::LightEvent;
+use openlogi_agent_core::wheel_mode::WheelNode;
 use openlogi_core::config::Config;
+use openlogi_hid::inventory::events::WheelModeCause;
 use openlogi_hook::Hook;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -349,6 +351,13 @@ impl Armed {
                             .await
                             .turn_keypad_page(device_key.as_deref(), turn);
                     }
+                    // No orchestrator lock: the popup answers the press.
+                    ActionRequest::WheelModeToggled { route, mode } => {
+                        let _ = running.observable.wheel_mode().toggled(&route, mode);
+                    }
+                    ActionRequest::ShowDpi(popup) => {
+                        let _ = running.observable.dpi().show(popup);
+                    }
                 },
                 Ok(()) = ring.changed() => {
                     running.apply_held_pointer().await;
@@ -546,6 +555,25 @@ impl Running {
                     update.device_index,
                     update.battery,
                 );
+            }
+            // A SmartShift reading: a baseline when the mouse connected, a
+            // popup when a ratchet switch moved the mode. No orchestrator lock:
+            // the readings name the mouse by its HID node, which needs no
+            // inventory.
+            InventoryEvent::WheelModeRead(update) => {
+                let node = WheelNode {
+                    vendor_id: update.vendor_id,
+                    product_id: update.product_id,
+                    device_index: update.device_index,
+                };
+                match update.cause {
+                    WheelModeCause::Connected => {
+                        self.observable.wheel_mode().connected(node, update.mode);
+                    }
+                    WheelModeCause::Switched => {
+                        let _ = self.observable.wheel_mode().switched(node, update.mode);
+                    }
+                }
             }
             // A device broadcast its own reconnection (`0x1d4b`): reconfigure
             // it on the next snapshot even if no reconciliation ever saw it
