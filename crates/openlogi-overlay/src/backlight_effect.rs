@@ -16,8 +16,14 @@ use tracing::warn;
 
 use crate::osd;
 
-/// Same width as the lock-key card: one translated effect name on a line.
-const WIDTH: f32 = 360.0;
+/// The narrowest the list gets, so a short cycle still reads as a card.
+const MIN_WIDTH: f32 = 160.0;
+/// The widest the list grows, the lock-key card's width: a longer
+/// translated name than this still fits on one line there.
+const MAX_WIDTH: f32 = 360.0;
+/// Room each side of a name inside its row, so the current effect's pill
+/// does not hug the text.
+const PILL_PAD: f32 = 16.0;
 /// One row. Seven of these, plus the card padding, still sit in the centre.
 const ROW: f32 = 36.0;
 /// How many rows the card shows before it keeps only a window around the
@@ -64,33 +70,56 @@ fn card_height(rows: usize) -> f32 {
 
 const ICON: f32 = 24.0;
 
+/// The rows the list draws for `effect` in `supported`.
+fn cycle_rows(effect: BacklightEffect, supported: &[BacklightEffect]) -> Vec<BacklightEffect> {
+    // None is not a cycle step. An unknown list names only the reported
+    // effect, and only when that effect is one the key can select.
+    let cycle = if supported.is_empty() {
+        if effect == BacklightEffect::None {
+            Vec::new()
+        } else {
+            vec![effect]
+        }
+    } else {
+        supported
+            .iter()
+            .copied()
+            .filter(|effect| *effect != BacklightEffect::None)
+            .collect()
+    };
+    if cycle.is_empty() {
+        return cycle;
+    }
+    visible_rows(&cycle, effect).to_vec()
+}
+
+/// The list width that fits a name `widest` pixels wide in its pill, within
+/// [`MIN_WIDTH`]..=[`MAX_WIDTH`].
+pub(crate) fn fit_list_width(widest: f32) -> f32 {
+    (osd::PAD * 2.0 + PILL_PAD * 2.0 + widest + osd::TEXT_SLACK).clamp(MIN_WIDTH, MAX_WIDTH)
+}
+
+/// The width of the list for `effect` in `supported`: its longest visible
+/// name, measured in the title weight the rows draw with.
+fn list_width(cx: &App, effect: BacklightEffect, supported: &[BacklightEffect]) -> f32 {
+    let widest = cycle_rows(effect, supported)
+        .into_iter()
+        .map(|row| osd::text_width(cx, &rust_i18n::t!(title_key(row)), osd::TITLE))
+        .fold(0.0, f32::max);
+    fit_list_width(widest)
+}
+
 /// The indicator window's view: the cycle, with the current effect in a pill.
 pub(crate) struct BacklightEffectView {
     effect: BacklightEffect,
     supported: Vec<BacklightEffect>,
+    /// The window's width, which [`list_width`] chose when it opened.
+    width: f32,
 }
 
 impl BacklightEffectView {
     fn rows(&self) -> Vec<BacklightEffect> {
-        // None is not a cycle step. An unknown list names only the reported
-        // effect, and only when that effect is one the key can select.
-        let cycle = if self.supported.is_empty() {
-            if self.effect == BacklightEffect::None {
-                Vec::new()
-            } else {
-                vec![self.effect]
-            }
-        } else {
-            self.supported
-                .iter()
-                .copied()
-                .filter(|effect| *effect != BacklightEffect::None)
-                .collect()
-        };
-        if cycle.is_empty() {
-            return cycle;
-        }
-        visible_rows(&cycle, self.effect).to_vec()
+        cycle_rows(self.effect, &self.supported)
     }
 }
 
@@ -103,7 +132,7 @@ impl Render for BacklightEffectView {
             .items_center()
             .justify_center()
             .gap(px(osd::GAP))
-            .w(px(WIDTH))
+            .w(px(self.width))
             .h(px(card_height(rows.len())))
             .px(px(osd::PAD))
             .rounded(px(osd::RADIUS))
@@ -169,13 +198,15 @@ pub(crate) fn present(cx: &mut App, shown: Option<BacklightEffect>, supported: &
     };
     let supported = supported.to_vec();
     let rows = window_rows(effect, &supported);
-    // A list that gains or loses a row is reopened rather than resized:
-    // resizing in place keeps the top-left, so a centred list would drift
-    // off centre.
+    let width = list_width(cx, effect, &supported);
+    // A list that gains or loses a row, or needs another width, is reopened
+    // rather than resized: resizing in place keeps the top-left, so a
+    // centred list would drift off centre.
     let reopen = open.is_empty()
         || open.iter().any(|view| {
             view.read_with(cx, |view, _| {
                 window_rows(view.effect, &view.supported) != rows
+                    || view.width.to_bits() != width.to_bits()
             })
             .unwrap_or(true)
         });
@@ -186,7 +217,7 @@ pub(crate) fn present(cx: &mut App, shown: Option<BacklightEffect>, supported: &
         if let Err(error) = crate::popup::open_centred_clear_of(
             cx,
             "openlogi-backlight-effect-osd",
-            size(px(WIDTH), px(card_height(rows))),
+            size(px(width), px(card_height(rows))),
             size(
                 px(crate::backlight::LARGEST_CARD.0),
                 px(crate::backlight::LARGEST_CARD.1),
@@ -195,6 +226,7 @@ pub(crate) fn present(cx: &mut App, shown: Option<BacklightEffect>, supported: &
                 cx.new(|_| BacklightEffectView {
                     effect,
                     supported: supported.clone(),
+                    width,
                 })
             },
         ) {
@@ -321,5 +353,32 @@ mod tests {
         cx.update(|cx| present(cx, None, &[]));
         cx.run_until_parked();
         assert!(shown(cx).is_empty(), "nothing showing closes the window");
+    }
+
+    #[test]
+    fn the_list_fits_its_longest_name_within_its_bounds() {
+        let fitted = fit_list_width(90.0);
+        assert!(
+            fitted >= osd::PAD * 2.0 + PILL_PAD * 2.0 + 90.0,
+            "{fitted} holds the name in its pill"
+        );
+        assert!(fitted < MAX_WIDTH, "a short cycle is narrower than before");
+        assert_eq!(
+            fit_list_width(0.0),
+            MIN_WIDTH,
+            "never narrower than the floor"
+        );
+        assert_eq!(
+            fit_list_width(1000.0),
+            MAX_WIDTH,
+            "never wider than the cap"
+        );
+    }
+
+    #[gpui::test]
+    fn the_cycle_is_measured_in_the_title_weight(cx: &mut gpui::TestAppContext) {
+        let width =
+            cx.update(|cx| list_width(cx, BacklightEffect::Static, &BacklightEffect::CYCLE));
+        assert!((MIN_WIDTH..=MAX_WIDTH).contains(&width), "{width}");
     }
 }
