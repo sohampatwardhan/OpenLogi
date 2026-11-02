@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, FontFeatures, FontWeight, Hsla, IntoElement,
-    ParentElement, Pixels, Render, Styled, Window, div, px, svg,
+    ParentElement, Render, Styled, Window, div, px, svg,
 };
 use openlogi_core::device::{BatteryInfo, BatteryLevel, ConnectionLink};
 use openlogi_ipc::{ConnectionEvent, ConnectionPopup};
@@ -84,10 +84,6 @@ const ROW_GAP: f32 = 8.0;
 /// Gap between a glyph and the text it labels, tighter than [`ROW_GAP`] so
 /// the two read as one: the link and Connected, the battery and its charge.
 const LABEL_GAP: f32 = 4.0;
-/// The cards' text size: GPUI's default `1rem`.
-const TEXT_SIZE: f32 = 16.0;
-/// Room for the rounding and kerning a sum of glyph advances leaves out.
-const TEXT_SLACK: f32 = 4.0;
 /// The widest the card grows to fit a name. A name longer than this still
 /// truncates, so one odd codename cannot span the display.
 const MAX_WIDTH: f32 = 720.0;
@@ -115,7 +111,7 @@ pub(crate) fn fit_width(row: RowWidths) -> f32 {
     if let Some(charge) = row.charge {
         width += ROW_GAP + ICON + LABEL_GAP + charge;
     }
-    (width + TEXT_SLACK).clamp(osd::CONNECTION_WIDTH, MAX_WIDTH)
+    (width + osd::TEXT_SLACK).clamp(osd::CONNECTION_WIDTH, MAX_WIDTH)
 }
 
 /// The card width for `popup`, measured in the system UI font the card
@@ -128,34 +124,13 @@ pub(crate) fn card_width(cx: &App, popup: &ConnectionPopup) -> f32 {
     } = connection_copy(popup);
     let connected = popup.event == ConnectionEvent::Connected;
     fit_width(RowWidths {
-        name: text_width(cx, &name, FontWeight::SEMIBOLD),
-        status: text_width(cx, &status, FontWeight::NORMAL),
+        name: osd::text_width(cx, &name, FontWeight::SEMIBOLD),
+        status: osd::text_width(cx, &status, FontWeight::NORMAL),
         link: connected,
         charge: charge
             .filter(|_| connected && popup.battery.is_some())
-            .map(|charge| text_width(cx, &charge, FontWeight::NORMAL)),
+            .map(|charge| osd::text_width(cx, &charge, FontWeight::NORMAL)),
     })
-}
-
-/// The width of `text` at [`TEXT_SIZE`] in `weight`, from its glyph
-/// advances. A glyph the font lacks counts as one em.
-fn text_width(cx: &App, text: &str, weight: FontWeight) -> f32 {
-    let text_system = cx.text_system();
-    let font_id = text_system.resolve_font(&gpui::Font {
-        weight,
-        ..gpui::font(".SystemUIFont")
-    });
-    let size = px(TEXT_SIZE);
-    let em = text_system
-        .em_width(font_id, size)
-        .map_or(TEXT_SIZE, Pixels::as_f32);
-    text.chars()
-        .map(|ch| {
-            text_system
-                .advance(font_id, size, ch)
-                .map_or(em, |advance| advance.width.as_f32())
-        })
-        .sum()
 }
 
 /// `icon` leading the `text` it labels, [`LABEL_GAP`] apart.

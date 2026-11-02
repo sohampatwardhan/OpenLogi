@@ -5,7 +5,7 @@
 //! both appearances — the same choice the notices make. The blue is the brand
 //! accent ([`openlogi_ui::color`]), not a second blue local to one popup.
 
-use gpui::{FontWeight, Hsla};
+use gpui::{App, FontWeight, Hsla, Pixels, px};
 use openlogi_core::device::BatteryLevel;
 use openlogi_ui::color;
 
@@ -82,4 +82,32 @@ pub(crate) fn battery_colour(full: bool) -> Hsla {
     } else {
         accent()
     }
+}
+
+/// The cards' text size: GPUI's default `1rem`.
+const TEXT_SIZE: f32 = 16.0;
+/// Room for the rounding and kerning a sum of glyph advances leaves out.
+pub(crate) const TEXT_SLACK: f32 = 4.0;
+
+/// The width of `text` at the cards' text size in `weight`, from its glyph
+/// advances in the system UI font. A glyph the font lacks counts as one em.
+/// A card measures its text with this before it opens, so its window can
+/// fit the words instead of a fixed width.
+pub(crate) fn text_width(cx: &App, text: &str, weight: FontWeight) -> f32 {
+    let text_system = cx.text_system();
+    let font_id = text_system.resolve_font(&gpui::Font {
+        weight,
+        ..gpui::font(".SystemUIFont")
+    });
+    let size = px(TEXT_SIZE);
+    let em = text_system
+        .em_width(font_id, size)
+        .map_or(TEXT_SIZE, Pixels::as_f32);
+    text.chars()
+        .map(|ch| {
+            text_system
+                .advance(font_id, size, ch)
+                .map_or(em, |advance| advance.width.as_f32())
+        })
+        .sum()
 }
