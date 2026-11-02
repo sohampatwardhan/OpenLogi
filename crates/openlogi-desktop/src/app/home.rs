@@ -289,9 +289,8 @@ pub(super) fn transport_icon(
     };
     let color: Hsla = match path {
         "action-icons/bluetooth.svg" => rgb(theme::ACCENT_BLUE).into(),
-        "action-icons/bolt.svg" | "action-icons/unifying.svg" => {
-            rgb(theme::STATUS_CONNECTED).into()
-        }
+        "action-icons/bolt.svg" => openlogi_ui::color::bolt(),
+        "action-icons/unifying.svg" => rgb(theme::STATUS_CONNECTED).into(),
         _ => pal.text_muted,
     };
     svg().path(path).flex_none().text_color(color)

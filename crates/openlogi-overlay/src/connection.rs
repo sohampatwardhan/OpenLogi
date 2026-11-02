@@ -3,22 +3,22 @@
 //! The agent decides what shows and for how long
 //! ([`openlogi_ipc::ConnectionObservation`]); this module only draws it, in
 //! the charging card's chrome ([`crate::osd`]). One row: the device on the
-//! left, and on the right either the word Disconnected, or Connected with
-//! the link glyph and, when the device has reported one, its charge and the
-//! vertical battery glyph.
+//! left, and on the right either the word Disconnected, or the link glyph
+//! and Connected, then, when the device has reported one, the vertical
+//! battery glyph and its charge. Each glyph leads the text it labels.
 //!
 //! ```text
-//! [ MX Master 3S        Connected (link) 80% (battery) ]
+//! [ MX Master 3S        (link) Connected (battery) 80% ]
 //! [ MX Keys S                              Disconnected ]
 //! ```
 
 use std::sync::Arc;
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Context, FontFeatures, FontWeight, IntoElement,
+    AnyWindowHandle, App, AppContext as _, Context, FontFeatures, FontWeight, Hsla, IntoElement,
     ParentElement, Pixels, Render, Styled, Window, div, px, svg,
 };
-use openlogi_core::device::{BatteryInfo, BatteryLevel};
+use openlogi_core::device::{BatteryInfo, BatteryLevel, ConnectionLink};
 use openlogi_ipc::{ConnectionEvent, ConnectionPopup};
 use openlogi_ui::action_icons::{MaterialSymbolStyle, battery_bar_icon, connection_link_icon};
 use tracing::warn;
@@ -78,11 +78,12 @@ pub(crate) fn battery_glyph(battery: &BatteryInfo, style: MaterialSymbolStyle) -
 const ICON: f32 = 24.0;
 /// Inset between the card edge and its row, the other cards' padding.
 const PAD: f32 = 20.0;
-/// Gap between the name and the status, and around the link glyph.
+/// Gap between the name and the status, and between the status and the
+/// battery.
 const ROW_GAP: f32 = 8.0;
-/// Gap between the charge and the battery glyph, tighter than [`ROW_GAP`]
-/// so the two read as one reading.
-const CHARGE_GAP: f32 = 2.0;
+/// Gap between a glyph and the text it labels, tighter than [`ROW_GAP`] so
+/// the two read as one: the link and Connected, the battery and its charge.
+const LABEL_GAP: f32 = 4.0;
 /// The cards' text size: GPUI's default `1rem`.
 const TEXT_SIZE: f32 = 16.0;
 /// Room for the rounding and kerning a sum of glyph advances leaves out.
@@ -109,10 +110,10 @@ pub(crate) struct RowWidths {
 pub(crate) fn fit_width(row: RowWidths) -> f32 {
     let mut width = PAD * 2.0 + row.name + ROW_GAP + row.status;
     if row.link {
-        width += ROW_GAP + ICON;
+        width += ICON + LABEL_GAP;
     }
     if let Some(charge) = row.charge {
-        width += ROW_GAP + charge + CHARGE_GAP + ICON;
+        width += ROW_GAP + ICON + LABEL_GAP + charge;
     }
     (width + TEXT_SLACK).clamp(osd::CONNECTION_WIDTH, MAX_WIDTH)
 }
@@ -157,12 +158,39 @@ fn text_width(cx: &App, text: &str, weight: FontWeight) -> f32 {
         .sum()
 }
 
+/// `icon` leading the `text` it labels, [`LABEL_GAP`] apart.
+fn labelled(icon: gpui::Svg, text: gpui::Div) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(LABEL_GAP))
+        .child(icon)
+        .child(text)
+}
+
 fn glyph(path: &'static str) -> gpui::Svg {
+    tinted(path, osd::accent())
+}
+
+fn tinted(path: &'static str, colour: Hsla) -> gpui::Svg {
     svg()
         .path(path)
         .size(px(ICON))
         .flex_none()
-        .text_color(osd::accent())
+        .text_color(colour)
+}
+
+/// The link glyph's colour: the Logi Bolt mark in its brand green, every
+/// other link in the accent.
+pub(crate) fn link_colour(link: ConnectionLink) -> Hsla {
+    match link {
+        ConnectionLink::Bolt => openlogi_ui::color::bolt(),
+        ConnectionLink::Bluetooth
+        | ConnectionLink::Unifying
+        | ConnectionLink::Lightspeed
+        | ConnectionLink::Usb => osd::accent(),
+    }
 }
 
 /// The connection card, `width` wide, shared by the indicator window and the
@@ -177,31 +205,32 @@ pub(crate) fn connection_card(
         status,
         charge,
     } = connection_copy(popup);
+    let status = div().whitespace_nowrap().child(status);
     let mut status_row = div()
         .flex()
         .flex_row()
         .flex_none()
         .items_center()
-        .gap(px(ROW_GAP))
-        .child(div().whitespace_nowrap().child(status));
+        .gap(px(ROW_GAP));
     if popup.event == ConnectionEvent::Connected {
-        status_row = status_row.child(glyph(connection_link_icon(popup.link, style)));
+        status_row = status_row.child(labelled(
+            tinted(
+                connection_link_icon(popup.link, style),
+                link_colour(popup.link),
+            ),
+            status,
+        ));
         if let (Some(battery), Some(charge)) = (popup.battery.as_ref(), charge) {
-            status_row = status_row.child(
+            status_row = status_row.child(labelled(
+                glyph(battery_glyph(battery, style)),
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(CHARGE_GAP))
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
-                            .child(charge),
-                    )
-                    .child(glyph(battery_glyph(battery, style))),
-            );
+                    .whitespace_nowrap()
+                    .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+                    .child(charge),
+            ));
         }
+    } else {
+        status_row = status_row.child(status);
     }
     div()
         .flex()

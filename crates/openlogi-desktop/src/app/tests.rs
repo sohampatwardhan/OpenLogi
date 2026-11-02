@@ -1082,7 +1082,7 @@ fn home_transport_icon_paints_in_its_transport_color(cx: &mut gpui::TestAppConte
     });
     let camera = record(DeviceKind::Camera, None);
     let expected: [(&DeviceRecord, Hsla); 3] = [
-        (&bolt, rgb(theme::STATUS_CONNECTED).into()),
+        (&bolt, openlogi_ui::color::bolt()),
         (&bluetooth, rgb(theme::ACCENT_BLUE).into()),
         (&camera, pal.text_muted),
     ];
