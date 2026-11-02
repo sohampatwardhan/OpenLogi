@@ -130,6 +130,7 @@ pub struct SettingsView {
     asset_source_select: Entity<SelectState<Vec<assets::AssetSourceOption>>>,
     thumbwheel_sensitivity: CommitSlider<ThumbwheelSensitivity>,
     vertical_scroll_sensitivity: CommitSlider<VerticalScrollSensitivity>,
+    low_battery_threshold: CommitSlider<openlogi_core::config::LowBatteryThreshold>,
     /// The General page's momentum-scrolling card: the app-wide default.
     momentum_panel: Entity<MomentumPanel>,
     /// Shared app-wide updater, surfaced on the Updates page. A launch-time
@@ -227,6 +228,7 @@ impl SettingsView {
 
         let thumbwheel_sensitivity = Self::thumbwheel_sensitivity_slider(cx);
         let vertical_scroll_sensitivity = Self::vertical_scroll_sensitivity_slider(cx);
+        let low_battery_threshold = Self::low_battery_threshold_slider(cx);
         let momentum_panel = cx.new(|cx| MomentumPanel::new(MomentumScope::General, cx));
 
         // Poll the agent's live event monitor while this window is open. The task
@@ -271,6 +273,7 @@ impl SettingsView {
             asset_source_select,
             thumbwheel_sensitivity,
             vertical_scroll_sensitivity,
+            low_battery_threshold,
             momentum_panel,
             updater,
             updater_obs,
@@ -313,6 +316,27 @@ impl SettingsView {
             cx,
             |_, sensitivity, cx| {
                 AppState::apply(cx, |state| state.commit_thumbwheel_sensitivity(sensitivity));
+            },
+        )
+    }
+
+    /// The low-battery percentage, committed once the thumb is released.
+    fn low_battery_threshold_slider(
+        cx: &mut Context<Self>,
+    ) -> CommitSlider<openlogi_core::config::LowBatteryThreshold> {
+        let current = AppState::try_read(cx).map_or(
+            openlogi_core::config::LowBatteryThreshold::DEFAULT,
+            |state| state.app_settings().low_battery_threshold,
+        );
+        CommitSlider::new(
+            SliderRange::new(
+                openlogi_core::config::LowBatteryThreshold::MIN,
+                openlogi_core::config::LowBatteryThreshold::MAX,
+            ),
+            current,
+            cx,
+            |_, threshold, cx| {
+                AppState::apply(cx, |state| state.commit_low_battery_threshold(threshold));
             },
         )
     }
@@ -430,13 +454,15 @@ impl Render for SettingsView {
         // these independently owned sliders so neither can keep presenting the
         // rejected value after that rollback.
         if let Some(settings) = AppState::try_read(cx).map(AppState::app_settings) {
-            let (vertical_scroll, thumbwheel) = (
+            let (vertical_scroll, thumbwheel, low_battery) = (
                 settings.vertical_scroll_sensitivity,
                 settings.thumbwheel_sensitivity,
+                settings.low_battery_threshold,
             );
             self.vertical_scroll_sensitivity
                 .sync(vertical_scroll, window, cx);
             self.thumbwheel_sensitivity.sync(thumbwheel, window, cx);
+            self.low_battery_threshold.sync(low_battery, window, cx);
         }
         let pal = theme::palette(cx);
         let view = cx.entity();
@@ -462,6 +488,7 @@ impl Render for SettingsView {
                     vertical_scroll: self.vertical_scroll_sensitivity.slider().clone(),
                     thumbwheel: self.thumbwheel_sensitivity.slider().clone(),
                 },
+                self.low_battery_threshold.slider().clone(),
                 self.momentum_panel.clone(),
                 self.registration_status,
             ))

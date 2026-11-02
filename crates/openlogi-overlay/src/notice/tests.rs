@@ -115,8 +115,8 @@ fn a_dismissed_card_makes_room_for_one_that_was_waiting() {
 
 #[test]
 fn the_window_fits_its_cards_and_their_shadow() {
-    assert_eq!(stack_size(1), size(px(344.0), px(88.0)));
-    assert_eq!(stack_size(3), size(px(344.0), px(232.0)));
+    assert_eq!(stack_size(1), size(px(384.0), px(112.0)));
+    assert_eq!(stack_size(3), size(px(384.0), px(304.0)));
     assert_eq!(
         stack_size(7),
         stack_size(MAX_CARDS),
@@ -135,8 +135,8 @@ fn a_low_battery_card_names_the_device_and_its_charge() {
     assert_eq!(
         notice_text(&notice.kind),
         NoticeText {
-            title: "Low battery".into(),
-            detail: "MX Master 3S · 15%".into(),
+            headline: "MX Master 3S · Low battery".to_owned(),
+            charge: "15%".to_owned(),
         }
     );
 }
@@ -145,7 +145,10 @@ fn a_low_battery_card_names_the_device_and_its_charge() {
 fn a_nameless_device_is_named_by_its_kind_and_a_level_only_reading_shows_no_percentage() {
     let notice = low_battery(1, None, None);
     assert_eq!(
-        notice_text(&notice.kind).detail,
-        SharedString::from("Mouse")
+        notice_text(&notice.kind),
+        NoticeText {
+            headline: "Mouse · Low battery".to_owned(),
+            charge: "Low battery".to_owned(),
+        }
     );
 }

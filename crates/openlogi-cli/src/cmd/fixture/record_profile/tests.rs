@@ -462,6 +462,14 @@ impl Agent for TestAgent {
         unreachable!("profile capture must not inspect the lock-key indicator")
     }
 
+    async fn observe_charging(
+        self,
+        _: TarpcContext,
+        _since: Generation,
+    ) -> openlogi_ipc::ChargingObservation {
+        unreachable!("profile capture must not inspect the charging indicator")
+    }
+
     async fn read_force_sensing(
         self,
         _: TarpcContext,

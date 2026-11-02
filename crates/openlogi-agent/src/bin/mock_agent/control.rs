@@ -8,7 +8,7 @@ use std::io::{BufRead as _, Write as _};
 use std::time::Duration;
 
 use openlogi_core::config::AppSettings;
-use openlogi_core::device::{BatteryInfo, BatteryStatus, LockKey};
+use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, LockKey};
 use openlogi_core::hid::BacklightEffect;
 use openlogi_hid::{DeviceRoute, WriteError};
 use openlogi_ipc::{LockKeyChange, NoticeKind};
@@ -31,6 +31,9 @@ effect <name>                    a keyboard switches backlight effect
                                  static contrast breathing waves reaction random
 effect off                       the effect key while the backlight is off
 radius <px>                      the UI corner radius, 0 for sharp icons
+charge <n> [percent]             the device starts charging
+unplug <n> [percent]             the device is unplugged and discharging
+full <n> [percent]               the device is fully charged, still on power
 advance <seconds>                move frozen test time (--fixture runs only)
 disconnect                       close every client connection
 help                             show this list";
@@ -74,6 +77,14 @@ pub(super) enum Command {
     EffectOff,
     /// The corner radius the overlay should draw, in pixels. `0` is sharp.
     Radius(u8),
+    /// Set a device's charging phase. `percentage` keeps the current reading
+    /// when `None`.
+    Power {
+        /// Position in the [`Command::Devices`] listing, from 0.
+        device: usize,
+        status: BatteryStatus,
+        percentage: Option<u8>,
+    },
     /// Move frozen test time forward.
     Advance(Duration),
     /// Close every client connection, as an agent restart does.
@@ -129,6 +140,9 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
                 .ok_or("radius needs a whole number of pixels")?;
             Command::Radius(radius)
         }
+        "charge" => parse_power(BatteryStatus::Charging, &mut words)?,
+        "unplug" => parse_power(BatteryStatus::Discharging, &mut words)?,
+        "full" => parse_power(BatteryStatus::Full, &mut words)?,
         "advance" => {
             let seconds = words
                 .next()
@@ -202,6 +216,27 @@ fn parse_lock_key<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Comma
     Ok(Command::LockKey(LockKeyChange { key, engaged }))
 }
 
+fn parse_power<'a>(
+    status: BatteryStatus,
+    words: &mut impl Iterator<Item = &'a str>,
+) -> Result<Command, String> {
+    let device = parse_device(words.next())?;
+    let percentage = match words.next() {
+        None => None,
+        Some(word) => Some(
+            word.parse::<u8>()
+                .ok()
+                .filter(|charge| *charge <= 100)
+                .ok_or("a battery reads 0 to 100 percent")?,
+        ),
+    };
+    Ok(Command::Power {
+        device,
+        status,
+        percentage,
+    })
+}
+
 fn parse_backlight<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Command, String> {
     let mut number = || words.next().and_then(|word| word.parse::<u8>().ok());
     let (Some(level), Some(levels)) = (number(), number()) else {
@@ -260,8 +295,14 @@ impl MockAgent {
                     target.route
                 };
                 let posted = self.announce_low_batteries(settings).await;
-                Ok(format!("{route}: battery set{posted}"))
+                let charging = self.note_charging(settings).await;
+                Ok(format!("{route}: battery set{posted}{charging}"))
             }
+            Command::Power {
+                device,
+                status,
+                percentage,
+            } => self.power(device, status, percentage, settings).await,
             Command::Link { device, online } => {
                 let route = {
                     let mut state = self.state.lock().await;
@@ -273,8 +314,9 @@ impl MockAgent {
                     route
                 };
                 let posted = self.announce_low_batteries(settings).await;
+                let charging = self.note_charging(settings).await;
                 let link = if online { "online" } else { "offline" };
-                Ok(format!("{route}: {link}{posted}"))
+                Ok(format!("{route}: {link}{posted}{charging}"))
             }
             Command::Fault { device, fault } => {
                 let mut state = self.state.lock().await;
@@ -329,6 +371,40 @@ impl MockAgent {
         }
     }
 
+    /// Report `status` (and `percentage`, else the device's current charge)
+    /// for the device at `device`, as a plug, unplug, or full charge would.
+    async fn power(
+        &self,
+        device: usize,
+        status: BatteryStatus,
+        percentage: Option<u8>,
+        settings: &AppSettings,
+    ) -> Result<String, String> {
+        let route = {
+            let mut state = self.state.lock().await;
+            let target = target(&state, device)?;
+            if !target.paired {
+                return Err(format!("{} reports no battery", target.route));
+            }
+            let percent = percentage.unwrap_or_else(|| {
+                target
+                    .battery
+                    .as_ref()
+                    .and_then(|battery| battery.percentage)
+                    .unwrap_or(80)
+            });
+            let mut reading = battery_at(percent, status);
+            if status == BatteryStatus::Full {
+                reading.level = BatteryLevel::Full;
+            }
+            state.set_battery(target.route.clone(), Some(reading));
+            target.route
+        };
+        let posted = self.announce_low_batteries(settings).await;
+        let charging = self.note_charging(settings).await;
+        Ok(format!("{route}: {status:?}{posted}{charging}"))
+    }
+
     /// Post a notice for each online device whose battery has just come to
     /// need attention, as the agent does after an inventory change. Answers a
     /// note for the reply when it posted any.
@@ -343,6 +419,17 @@ impl MockAgent {
         } else {
             format!("; posted {count} low-battery notice(s)")
         }
+    }
+
+    /// Feed the online batteries to the charging indicator, as an inventory
+    /// refresh does. Answers a note for the reply when a phase changed.
+    async fn note_charging(&self, settings: &AppSettings) -> String {
+        let samples = self.state.lock().await.charging_samples();
+        let shown = self.charging.note(&samples, settings);
+        if let Some(popup) = shown.first() {
+            return format!("; showing {:?}", popup.event);
+        }
+        String::new()
     }
 }
 

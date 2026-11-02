@@ -8,7 +8,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use openlogi_ipc::{Generation, OBSERVE_HOLD, UiChromeObservation};
-use openlogi_ui::material::{DEFAULT_THEME_RADIUS_PX, effective_radius};
+use openlogi_ui::action_icons::{DEFAULT_THEME_RADIUS_PX, effective_radius};
 use tokio::sync::watch;
 
 /// The radius the overlay is drawing with.

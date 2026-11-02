@@ -19,7 +19,8 @@ use openlogi_core::binding::ActionRingSlot;
 use openlogi_ipc::client::{self, ConnectError, Observer, Stamped};
 use openlogi_ipc::{
     ActionRingInvocation, AgentClient, BacklightEffectObservation, BacklightObservation,
-    ClientKind, LockKeyObservation, NoticeObservation, RingObservation, UiChromeObservation,
+    ChargingObservation, ClientKind, LockKeyObservation, NoticeObservation, RingObservation,
+    UiChromeObservation,
 };
 use succession::Standing;
 use tarpc::context;
@@ -68,6 +69,9 @@ pub(crate) struct Handle {
     pub(crate) backlight_effects: mpsc::UnboundedReceiver<BacklightEffectObservation>,
     /// The corner radius for Material Symbol icons.
     pub(crate) ui_chrome: mpsc::UnboundedReceiver<UiChromeObservation>,
+    /// The charging popup the agent says should be showing. `None` inside
+    /// the observation is no indicator, which is also how one ends.
+    pub(crate) charging: mpsc::UnboundedReceiver<ChargingObservation>,
     /// Where the view reports hover, activation, and cancellation.
     pub(crate) commands: mpsc::UnboundedSender<OverlayCommand>,
 }
@@ -81,6 +85,7 @@ pub(crate) fn spawn() -> Handle {
     let (lock_key_tx, lock_keys) = mpsc::unbounded_channel();
     let (effect_tx, backlight_effects) = mpsc::unbounded_channel();
     let (chrome_tx, ui_chrome) = mpsc::unbounded_channel();
+    let (charging_tx, charging) = mpsc::unbounded_channel();
     let (commands, mut command_rx) = mpsc::unbounded_channel();
     let started = openlogi_core::worker::spawn("openlogi-overlay-ipc", move |runtime| {
         runtime.block_on(async {
@@ -103,6 +108,9 @@ pub(crate) fn spawn() -> Handle {
                 observe(connect, UI_CHROME, |observed| chrome_tx
                     .send(observed)
                     .is_ok()),
+                observe(connect, CHARGING, |observed| charging_tx
+                    .send(observed)
+                    .is_ok()),
                 send_commands(&mut command_rx)
             );
         });
@@ -117,6 +125,7 @@ pub(crate) fn spawn() -> Handle {
         lock_keys,
         backlight_effects,
         ui_chrome,
+        charging,
         commands,
     }
 }
@@ -178,6 +187,13 @@ const UI_CHROME: Cell<UiChromeObservation> = Cell {
     lost: None,
 };
 
+/// The charging indicator, which the agent hides when its time is up.
+const CHARGING: Cell<ChargingObservation> = Cell {
+    open: Observer::charging,
+    what: "charging",
+    lost: Some(no_charging),
+};
+
 /// The observation that closes the indicator when the agent that was driving
 /// it is gone. The generation is meaningless to the window, which only reads
 /// `visible`.
@@ -220,6 +236,16 @@ fn no_backlight_effect() -> BacklightEffectObservation {
         shown: None,
         language: None,
         supported: Vec::new(),
+    }
+}
+
+/// The observation that closes the charging indicator of an agent that is
+/// gone. The window reads only `shown`.
+const fn no_charging() -> ChargingObservation {
+    ChargingObservation {
+        generation: 0,
+        shown: None,
+        language: None,
     }
 }
 

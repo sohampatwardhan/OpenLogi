@@ -43,6 +43,48 @@ async fn notices(observable: &ObservableState) -> Vec<Notice> {
 }
 
 #[tokio::test]
+async fn a_battery_that_is_not_low_at_startup_posts_nothing() {
+    let (mut orch, observable) = wired(Config::default());
+    refresh(&mut orch, discharging(40), true, "MX Anywhere 3S");
+    refresh(&mut orch, discharging(21), true, "MX Anywhere 3S");
+    assert!(
+        notices(&observable).await.is_empty(),
+        "above the threshold is never a low-battery popup"
+    );
+}
+
+#[tokio::test]
+async fn a_battery_already_under_the_threshold_at_startup_is_announced() {
+    let mut config = Config::default();
+    config.app_settings.low_battery_threshold = openlogi_core::config::LowBatteryThreshold::new(30);
+    let (mut orch, observable) = wired(config);
+    refresh(&mut orch, discharging(25), true, "MX Anywhere 3S");
+    let posted = notices(&observable).await;
+    assert_eq!(posted.len(), 1, "already low on the first reading");
+    assert!(matches!(
+        &posted[0].kind,
+        NoticeKind::LowBattery { battery, .. } if battery.percentage == Some(25)
+    ));
+}
+
+#[tokio::test]
+async fn raising_the_threshold_announces_a_device_that_is_now_low() {
+    let (mut orch, observable) = wired(Config::default());
+    refresh(&mut orch, discharging(25), true, "MX Anywhere 3S");
+    assert!(notices(&observable).await.is_empty());
+
+    let mut config = orch.config.clone();
+    config.app_settings.low_battery_threshold = openlogi_core::config::LowBatteryThreshold::new(30);
+    orch.replace_config(config);
+    let posted = notices(&observable).await;
+    assert_eq!(
+        posted.len(),
+        1,
+        "the new threshold is applied to the battery already on hand"
+    );
+}
+
+#[tokio::test]
 async fn a_battery_that_runs_low_posts_one_notice() {
     let mut config = Config::default();
     config.app_settings.language = Some("fr".to_owned());
@@ -153,4 +195,23 @@ async fn a_recharge_while_the_notices_are_off_is_still_taken_in() {
         "the discharge after the recharge is announced once they are on"
     );
     assert_ne!(posted[1].id, first[0].id);
+}
+
+#[tokio::test]
+async fn a_battery_broadcast_that_crosses_the_threshold_is_announced_at_once() {
+    let (mut orch, observable) = wired(Config::default());
+    refresh(&mut orch, discharging(40), true, "MX Anywhere 3S");
+    assert!(notices(&observable).await.is_empty());
+    orch.apply_battery_broadcast(
+        0x046d,
+        0xb023,
+        openlogi_hid::DIRECT_DEVICE_INDEX,
+        discharging(15),
+    );
+    let posted = notices(&observable).await;
+    assert_eq!(posted.len(), 1, "{posted:?}");
+    assert!(matches!(
+        &posted[0].kind,
+        NoticeKind::LowBattery { battery, .. } if battery.percentage == Some(15)
+    ));
 }

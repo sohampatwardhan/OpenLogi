@@ -44,6 +44,7 @@ use crate::capture_plan::{
     CapturePublication, PlanDevice, SharedCapturePlans, buttons_unlike_focus,
     hidpp_side_gesture_maps_for, plan_for_device, shift_bindings_for,
 };
+use crate::charging::ChargingSample;
 use crate::flow::{FlowController, InventoryDevice};
 use crate::hardware::{
     DeviceAccess, DeviceOp, HardwareContext, KeptOsLayouts, VolatileMouseSettings, WriteOrder,
@@ -119,6 +120,25 @@ impl AgentDevice {
         let identity = DeviceIdentity::from_parts(self.serial.as_deref(), self.unit_id);
         config.resolve_device_key(&stable_id(self), self.online.then_some(&identity))
     }
+}
+
+/// Online devices that have a battery reading, copied out so a later
+/// announcement can borrow the orchestrator mutably.
+fn low_battery_readings(
+    devices: &[AgentDevice],
+) -> Vec<(String, DeviceKind, Option<String>, BatteryInfo)> {
+    devices
+        .iter()
+        .filter(|device| device.online)
+        .filter_map(|device| {
+            Some((
+                device.config_key.clone(),
+                device.kind,
+                device.codename.clone(),
+                device.battery.clone()?,
+            ))
+        })
+        .collect()
 }
 
 /// Cheaply cloneable handles handed to hooks and background managers.
@@ -1404,6 +1424,7 @@ impl Orchestrator {
             self.sync_disabled_keys_policy(dev);
         }
         self.announce_low_batteries(&devices);
+        self.note_charging(&devices);
         // Before any cookie plan below: a keyboard that goes to sleep or
         // leaves later keeps its byte for the clears and links that name it.
         self.follower_cookies().remember_leads(&devices);
@@ -1537,37 +1558,139 @@ impl Orchestrator {
         }
     }
 
+    /// Fold a battery reading a device broadcast into the last snapshot, and
+    /// show what it changed at once: the charging popup for a charger plugged
+    /// in or pulled out, the low-battery notice for a battery that just came
+    /// to need attention. The reconciliation the broadcast also requested
+    /// confirms the reading later.
+    ///
+    /// The device is named by the HID node the broadcast arrived on and its
+    /// device index there. A reading no online device matches, or that two
+    /// devices could match, is left to that reconciliation. The charging and
+    /// low-battery rules are the snapshot's: a device's first phase is still
+    /// a baseline, and a repeat of the same phase shows nothing.
+    pub fn apply_battery_broadcast(
+        &mut self,
+        vendor_id: u16,
+        product_id: u16,
+        device_index: u8,
+        battery: BatteryInfo,
+    ) {
+        let InventoryState::Ready { inventories, .. } = &mut self.inventory else {
+            return;
+        };
+        let mut matches = inventories
+            .iter_mut()
+            .filter(|inv| {
+                inv.receiver.vendor_id == vendor_id && inv.receiver.product_id == product_id
+            })
+            .filter_map(|inv| {
+                let route = DeviceRoute::for_slot(inv, device_index)?;
+                let paired = inv
+                    .paired
+                    .iter_mut()
+                    .find(|paired| paired.slot == device_index && paired.online)?;
+                Some((route, paired))
+            })
+            .collect::<Vec<_>>();
+        let (route, paired) = match matches.len() {
+            1 => matches.remove(0),
+            0 => {
+                debug!(
+                    device_index,
+                    "battery broadcast from no known online device"
+                );
+                return;
+            }
+            _ => {
+                debug!(device_index, "battery broadcast matches several devices");
+                return;
+            }
+        };
+        if paired.battery.as_ref() == Some(&battery) {
+            return;
+        }
+        paired.battery = Some(battery.clone());
+        let Some(device) = self
+            .devices
+            .iter_mut()
+            .find(|device| device.online && device.route.as_ref() == Some(&route))
+        else {
+            return;
+        };
+        debug!(device = %device.config_key, ?battery, "battery broadcast applied");
+        device.battery = Some(battery);
+        self.publish_inventory();
+        self.reevaluate_low_batteries();
+        self.note_charging(&self.devices);
+    }
+
     /// Post a low-battery notice for each online device whose battery has just
     /// come to need attention, as [`LowBatteryWatch::take_reading`] decides
     /// under the user's settings. An offline device's reading is only its last
     /// known one, and says nothing new.
     fn announce_low_batteries(&mut self, devices: &[AgentDevice]) {
-        for device in devices.iter().filter(|device| device.online) {
-            let Some(battery) = device.battery.as_ref() else {
-                continue;
-            };
-            if !self.low_battery.take_reading(
-                &self.config.app_settings,
-                &device.config_key,
-                battery,
-            ) {
+        let readings = low_battery_readings(devices);
+        self.post_low_batteries(readings);
+    }
+
+    /// Re-read the batteries already on hand after the threshold changes, so a
+    /// device that is now at or below it is announced without waiting for the
+    /// next poll. A device that is not low is not announced.
+    fn reevaluate_low_batteries(&mut self) {
+        let readings = low_battery_readings(&self.devices);
+        self.post_low_batteries(readings);
+    }
+
+    fn post_low_batteries(
+        &mut self,
+        readings: Vec<(String, DeviceKind, Option<String>, BatteryInfo)>,
+    ) {
+        for (key, kind, codename, battery) in readings {
+            if !self
+                .low_battery
+                .take_reading(&self.config.app_settings, &key, &battery)
+            {
                 continue;
             }
             let name = self
                 .config
-                .device_custom_name(&device.config_key)
+                .device_custom_name(&key)
                 .map(str::to_owned)
-                .or_else(|| device.codename.as_deref().map(prettify_codename));
-            info!(device = %device.config_key, ?battery, "announcing a low battery");
+                .or_else(|| codename.as_deref().map(prettify_codename));
+            info!(device = %key, ?battery, "announcing a low battery");
             self.observable.notices().post(
                 NoticeKind::LowBattery {
                     name,
-                    kind: device.kind,
-                    battery: battery.clone(),
+                    kind,
+                    battery,
                 },
                 self.config.app_settings.language.clone(),
             );
         }
+    }
+
+    /// Record each online device's charging phase. The first phase after
+    /// startup or connect is a baseline; a later change of phase is shown on
+    /// the overlay at once unless the user turned that popup off.
+    fn note_charging(&self, devices: &[AgentDevice]) {
+        let samples = devices
+            .iter()
+            .filter(|device| device.online)
+            .map(|device| ChargingSample {
+                id: device.config_key.clone(),
+                name: self
+                    .config
+                    .device_custom_name(&device.config_key)
+                    .map(str::to_owned)
+                    .or_else(|| device.codename.as_deref().map(prettify_codename)),
+                kind: device.kind,
+                battery: device.battery.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.observable
+            .charging()
+            .note(&samples, &self.config.app_settings);
     }
 
     /// Advance only the captures whose own online transition requires it.
@@ -2174,6 +2297,8 @@ impl Orchestrator {
 
         self.apply_changed_pointer_speeds(&previous);
         self.apply_enabled_os_layouts(&previous);
+        self.note_charging(&self.devices);
+        self.reevaluate_low_batteries();
         let writes = changed_follower_cookies(
             &previous,
             &self.config,

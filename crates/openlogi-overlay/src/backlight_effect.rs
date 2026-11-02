@@ -14,7 +14,6 @@ use openlogi_core::hid::BacklightEffect;
 use openlogi_ui::action_icons::backlight_effect_icon;
 use tracing::warn;
 
-use crate::chrome;
 use crate::osd;
 
 /// Same width as the lock-key card: one translated effect name on a line.
@@ -113,7 +112,7 @@ impl Render for BacklightEffectView {
             .font_weight(osd::TITLE)
             .child(
                 svg()
-                    .path(backlight_effect_icon(chrome::corner(cx)))
+                    .path(backlight_effect_icon(crate::icons::style(cx)))
                     .size(px(ICON))
                     .flex_none()
                     .text_color(osd::TEXT),

@@ -166,16 +166,28 @@ impl LowBatteryWatch {
         battery: &BatteryInfo,
     ) -> bool {
         if settings.low_battery_notifications {
-            return self.observe(device, battery);
+            return self.observe_at(device, battery, settings.low_battery_threshold.get());
         }
         self.observe_muted(device, battery);
         false
     }
 
-    /// Take in `device`'s latest reading. Answers whether to announce its low
-    /// battery now.
+    /// Take in `device`'s latest reading at the default threshold. Answers
+    /// whether to announce its low battery now.
+    #[cfg(test)]
     fn observe(&mut self, device: &str, battery: &BatteryInfo) -> bool {
-        if battery.needs_attention() {
+        self.observe_at(
+            device,
+            battery,
+            openlogi_core::device::LOW_BATTERY_THRESHOLD_DEFAULT,
+        )
+    }
+
+    /// Take in `device`'s latest reading at `threshold` percent. Answers
+    /// whether to announce its low battery now. A reading that is not low
+    /// is never announced, including the first one.
+    fn observe_at(&mut self, device: &str, battery: &BatteryInfo, threshold: u8) -> bool {
+        if battery.needs_attention(threshold) {
             return self.announced.insert(device.to_owned());
         }
         self.observe_muted(device, battery);

@@ -14,17 +14,17 @@ use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Hsla, IntoElement, ParentElement, Render,
     Styled, Window, WindowHandle, div, px, size, svg,
 };
+
 use openlogi_core::device::LockKey;
 use openlogi_ipc::LockKeyChange;
 use openlogi_ui::action_icons::lock_key_icon;
 use tracing::warn;
 
-use crate::chrome;
 use crate::osd;
 
 /// Wide enough for the longest translated title on one line.
-const WIDTH: f32 = 360.0;
-const HEIGHT: f32 = 72.0;
+const WIDTH: f32 = osd::LOCK_WIDTH;
+const HEIGHT: f32 = osd::LOCK_HEIGHT;
 
 /// The catalog key for the text that announces `change`.
 pub(crate) const fn title_key(change: LockKeyChange) -> &'static str {
@@ -64,7 +64,7 @@ impl Render for LockKeyView {
             .text_color(osd::TEXT)
             .child(
                 svg()
-                    .path(lock_key_icon(self.change.engaged, chrome::corner(cx)))
+                    .path(lock_key_icon(self.change.engaged, crate::icons::style(cx)))
                     .size(px(24.0))
                     .flex_none()
                     .text_color(glyph_colour(self.change.engaged)),

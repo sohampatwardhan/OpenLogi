@@ -537,6 +537,16 @@ impl Running {
             InventoryEvent::LockKeyChanged(change) => {
                 self.orchestrator.lock().await.announce_lock_key(change);
             }
+            // A battery broadcast: plugged in or pulled out shows now, not
+            // after the reconciliation it also requested.
+            InventoryEvent::BatteryChanged(update) => {
+                self.orchestrator.lock().await.apply_battery_broadcast(
+                    update.vendor_id,
+                    update.product_id,
+                    update.device_index,
+                    update.battery,
+                );
+            }
             // A device broadcast its own reconnection (`0x1d4b`): reconfigure
             // it on the next snapshot even if no reconciliation ever saw it
             // offline.

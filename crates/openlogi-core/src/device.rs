@@ -374,20 +374,34 @@ pub struct BatteryInfo {
     pub status: BatteryStatus,
 }
 
-/// The charge at or below which a discharging battery needs attention.
-const LOW_BATTERY_PERCENT: u8 = 20;
+/// The charge at or below which a discharging battery needs attention,
+/// unless the user has chosen another [`LOW_BATTERY_THRESHOLD_MIN`]..=[`LOW_BATTERY_THRESHOLD_MAX`]
+/// percentage.
+pub const LOW_BATTERY_THRESHOLD_DEFAULT: u8 = 20;
+
+/// Lowest percentage the low-battery setting will store.
+pub const LOW_BATTERY_THRESHOLD_MIN: u8 = 5;
+
+/// Highest percentage the low-battery setting will store.
+pub const LOW_BATTERY_THRESHOLD_MAX: u8 = 50;
 
 impl BatteryInfo {
     /// Whether this reading should draw the user's attention: a discharging
-    /// battery at 20% or less, or, on a device that reports no percentage, at
-    /// the firmware's low or critical level.
+    /// battery at or below `threshold` percent, or, on a device that reports
+    /// no percentage, at the firmware's low or critical level.
+    ///
+    /// `threshold` is the user's percentage. Callers pass the clamped setting.
+    /// A percentage decides on its own: a reading of 21% is not low at a
+    /// threshold of 20 even when the firmware's level says low. A device with
+    /// no percentage has nothing to compare, so the level stands in.
     ///
     /// Every low-battery cue asks this one rule: the settings app's warning
-    /// tone and caption, and the agent's low-battery notice.
+    /// tone and caption, and the agent's low-battery notice. A battery that
+    /// is not low is never announced, including the first reading at startup.
     #[must_use]
-    pub fn needs_attention(&self) -> bool {
+    pub fn needs_attention(&self, threshold: u8) -> bool {
         let low = match self.percentage {
-            Some(percentage) => percentage <= LOW_BATTERY_PERCENT,
+            Some(percentage) => percentage <= threshold,
             None => matches!(self.level, BatteryLevel::Low | BatteryLevel::Critical),
         };
         low && !matches!(
@@ -739,26 +753,30 @@ mod tests {
         let good = BatteryLevel::Good;
         let discharging = BatteryStatus::Discharging;
 
-        assert!(battery(Some(20), good, discharging).needs_attention());
-        assert!(battery(Some(0), good, discharging).needs_attention());
-        assert!(!battery(Some(21), BatteryLevel::Low, discharging).needs_attention());
+        let low = |reading: BatteryInfo, threshold| reading.needs_attention(threshold);
+        assert!(low(battery(Some(20), good, discharging), 20));
+        assert!(low(battery(Some(0), good, discharging), 20));
+        assert!(!low(battery(Some(21), BatteryLevel::Low, discharging), 20));
+        assert!(low(battery(Some(21), BatteryLevel::Low, discharging), 21));
+        assert!(!low(battery(Some(25), good, discharging), 20));
+        assert!(low(battery(Some(25), good, discharging), 30));
         // A percentage decides on its own; the level only stands in for one.
-        assert!(!battery(None, good, discharging).needs_attention());
-        assert!(battery(None, BatteryLevel::Low, discharging).needs_attention());
-        assert!(battery(None, BatteryLevel::Critical, discharging).needs_attention());
-        assert!(!battery(None, BatteryLevel::Unknown, discharging).needs_attention());
-        assert!(battery(Some(10), good, BatteryStatus::Unknown).needs_attention());
-        assert!(battery(Some(10), good, BatteryStatus::Error).needs_attention());
+        assert!(!low(battery(None, good, discharging), 20));
+        assert!(low(battery(None, BatteryLevel::Low, discharging), 20));
+        assert!(low(battery(None, BatteryLevel::Critical, discharging), 50));
+        assert!(!low(battery(None, BatteryLevel::Unknown, discharging), 5));
+        assert!(low(battery(Some(10), good, BatteryStatus::Unknown), 20));
+        assert!(low(battery(Some(10), good, BatteryStatus::Error), 20));
         for powered in [
             BatteryStatus::Charging,
             BatteryStatus::ChargingSlow,
             BatteryStatus::Full,
         ] {
             assert!(
-                !battery(Some(5), BatteryLevel::Critical, powered).needs_attention(),
+                !low(battery(Some(5), BatteryLevel::Critical, powered), 50),
                 "{powered:?} is already being charged"
             );
-            assert!(!battery(None, BatteryLevel::Critical, powered).needs_attention());
+            assert!(!low(battery(None, BatteryLevel::Critical, powered), 20));
         }
     }
 

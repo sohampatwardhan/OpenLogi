@@ -50,6 +50,7 @@ use std::time::{Duration, Instant};
 use futures::StreamExt as _;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use openlogi_agent_core::backlight_overlay::BacklightOverlayManager;
+use openlogi_agent_core::charging::{ChargingIndicator, ChargingSample};
 use openlogi_agent_core::lock_keys::LockKeyIndicator;
 use openlogi_agent_core::notices::{LowBatteryWatch, NoticeBoard};
 use openlogi_agent_core::ui_chrome::UiChrome;
@@ -71,11 +72,11 @@ use openlogi_hid::{
 use openlogi_ipc::transport;
 use openlogi_ipc::{
     ActionRingCommandError, ActionRingInvocation, Agent, AgentSnapshot, AgentStatus,
-    BacklightEffectObservation, BacklightObservation, ClientKind, ConfigReloadError, FlowStatus,
-    ForegroundApps, FoundDevice, Generation, Identity, InventoryHealth, LockKeyChange,
-    LockKeyObservation, MonitorEvent, NoticeKind, NoticeObservation, OBSERVE_HOLD, Observation,
-    PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingPhase, PairingUpdate,
-    RingObservation, SavedConfig, SavedConfigVerdict,
+    BacklightEffectObservation, BacklightObservation, ChargingObservation, ClientKind,
+    ConfigReloadError, FlowStatus, ForegroundApps, FoundDevice, Generation, Identity,
+    InventoryHealth, LockKeyChange, LockKeyObservation, MonitorEvent, NoticeKind,
+    NoticeObservation, OBSERVE_HOLD, Observation, PROTOCOL_VERSION, PairingCommandError,
+    PairingFailure, PairingPhase, PairingUpdate, RingObservation, SavedConfig, SavedConfigVerdict,
 };
 use succession::Compat;
 use tarpc::context::Context;
@@ -711,6 +712,21 @@ impl State {
         targets
     }
 
+    /// Online devices, for the charging indicator. An offline device is
+    /// absent, so coming back is a fresh baseline.
+    fn charging_samples(&self) -> Vec<ChargingSample> {
+        self.targets()
+            .into_iter()
+            .filter(|target| target.online)
+            .map(|target| ChargingSample {
+                id: target.route.to_string(),
+                name: target.name,
+                kind: target.kind,
+                battery: target.battery,
+            })
+            .collect()
+    }
+
     /// The online flag of the device `route` names, wherever the profile or
     /// pairing keeps it.
     fn online_mut(&mut self, route: &DeviceRoute) -> Option<&mut bool> {
@@ -922,6 +938,8 @@ struct MockAgent {
     backlight: BacklightOverlayManager,
     /// The corner radius the overlay draws Material Symbols with.
     ui_chrome: UiChrome,
+    /// The charging indicator the overlay shows.
+    charging: ChargingIndicator,
     /// Signalled by the console to close every open client connection. Each
     /// connection holds one receiver.
     disconnects: Arc<watch::Sender<()>>,
@@ -937,6 +955,10 @@ impl MockAgent {
             snapshot: snapshot_of(&state),
         };
         let (disconnects, _) = watch::channel(());
+        let charging = ChargingIndicator::default();
+        // The profile's batteries are the baseline, so the first console
+        // command that changes a phase is a real transition.
+        charging.note(&state.charging_samples(), &AppSettings::default());
         Self {
             state: Arc::new(Mutex::new(state)),
             served: Arc::new(Mutex::new(served)),
@@ -944,6 +966,7 @@ impl MockAgent {
             lock_keys: LockKeyIndicator::default(),
             backlight: BacklightOverlayManager::default(),
             ui_chrome: UiChrome::from_setting(None),
+            charging,
             disconnects: Arc::new(disconnects),
             settings: app_settings,
         }
@@ -1361,6 +1384,10 @@ impl Agent for MockAgent {
             info!(shown, "demo Caps Lock for the overlay's first look");
         }
         self.lock_keys.observe(since).await
+    }
+
+    async fn observe_charging(self, _: Context, since: Generation) -> ChargingObservation {
+        self.charging.observe(since).await
     }
 
     async fn read_disable_keys(

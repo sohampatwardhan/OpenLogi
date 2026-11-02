@@ -16,6 +16,13 @@
 //! effect, which go through a separate latest-value channel to the transient
 //! on-screen indicator ([`EventReceiver::backlights`]).
 //!
+//! A battery broadcast (`0x1004`, `0x1000`, `0x1001`) also goes straight to
+//! the agent as a reading ([`EventReceiver::take_batteries`]), so a charger
+//! plugged in or pulled shows at once instead of after the reconciliation it
+//! still requests. A payload that cannot be read on its own, or a broadcast
+//! from a feature other than the one the probe reads, is answered by one
+//! re-read of the probe's battery feature.
+//!
 //! A keyboard's lock-key broadcast (`0x4220`) is not inventory at all. It is
 //! compared with the device's last lock state, and each key that changed goes
 //! to the on-screen indicator ([`EventReceiver::take_lock_keys`]).
@@ -23,7 +30,8 @@
 //! [`PairedDevice::settings_revision`]: openlogi_core::device::PairedDevice::settings_revision
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, PoisonError, RwLock, Weak};
+use std::time::Instant;
 
 use hidpp::channel::{HidppChannel, HidppMessage, MessageListenerGuard};
 use hidpp::feature::CreatableFeature;
@@ -31,8 +39,8 @@ use hidpp::feature::adc_measurement::AdcMeasurementFeature;
 use hidpp::feature::backlight::{
     BacklightEvent, BacklightFeature, BacklightInfoUpdate, BacklightStatus,
 };
-use hidpp::feature::battery_status::BatteryStatusFeature;
-use hidpp::feature::battery_voltage::BatteryVoltageFeature;
+use hidpp::feature::battery_status::{BatteryStatusFeature, LegacyBatteryStatus};
+use hidpp::feature::battery_voltage::{BatteryVoltageFeature, VoltageBatteryInfo};
 use hidpp::feature::disable_keys::DisableKeysFeature;
 use hidpp::feature::extended_dpi::ExtendedDpiFeature;
 use hidpp::feature::extended_report_rate::ExtendedReportRateFeature;
@@ -46,7 +54,7 @@ use hidpp::feature::unified_battery::BatteryEvent;
 use hidpp::feature::wireless_device_status::WirelessDeviceStatusEvent;
 use hidpp::protocol::{v10, v20};
 use hidpp::receiver::{bolt, unifying};
-use openlogi_core::device::LockKey;
+use openlogi_core::device::{BatteryInfo, LockKey};
 use openlogi_core::hid::BacklightEffect;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
@@ -54,6 +62,9 @@ use tokio::sync::Notify;
 use tokio::sync::{mpsc, watch};
 use tracing::debug;
 
+use super::cache::hold_percentage_while_charging;
+use super::features::{BatteryProbe, BatteryRead, read_battery, unified_reading, voltage_reading};
+use super::mappings::legacy_battery_info;
 use crate::ReceiverProtocol;
 
 /// A HID++ lifecycle source that requested authoritative inventory
@@ -104,6 +115,15 @@ pub enum HidppEventSource {
 }
 
 impl HidppEventSource {
+    /// Whether this source is a battery broadcast, whose reading goes to the
+    /// agent at once.
+    const fn is_battery(self) -> bool {
+        matches!(
+            self,
+            Self::UnifiedBattery | Self::BatteryStatus | Self::BatteryVoltage
+        )
+    }
+
     /// Whether this source announces a change to a device setting a client
     /// shows, rather than to the device's presence or battery.
     const fn changes_settings(self) -> bool {
@@ -193,6 +213,26 @@ impl LockKeyUpdate {
     }
 }
 
+/// A battery reading a device broadcast, for the charging popup and the
+/// low-battery notice, ahead of the reconciliation it also requests.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BatteryUpdate {
+    /// Vendor id of the HID node the broadcast arrived on: the receiver for a
+    /// paired device, the device itself when it is attached directly.
+    pub vendor_id: u16,
+    /// Product id of that HID node.
+    pub product_id: u16,
+    /// HID++ device index: a receiver slot, or `0xff` for a direct device.
+    pub device_index: u8,
+    /// The reading, mapped as an inventory battery read maps it.
+    pub battery: BatteryInfo,
+}
+
+/// How many battery readings wait for the agent before new ones are dropped.
+/// A device broadcasts on a phase or level change, far slower than the agent
+/// reads them.
+const BATTERY_QUEUE: usize = 16;
+
 /// How many lock-key updates wait for the indicator before new ones are
 /// dropped. A person toggles lock keys far slower than the indicator reads
 /// them, so only a stalled indicator fills it.
@@ -212,6 +252,7 @@ pub struct EventNotifier {
     sender: mpsc::Sender<HidppEventSource>,
     backlight: watch::Sender<Option<BacklightUpdate>>,
     lock_keys: mpsc::Sender<LockKeyUpdate>,
+    batteries: mpsc::Sender<BatteryUpdate>,
     #[cfg(test)]
     observation: Option<Arc<EventObservation>>,
 }
@@ -230,6 +271,12 @@ impl EventNotifier {
         self.backlight.send_replace(Some(update));
     }
 
+    fn notify_battery(&self, update: BatteryUpdate) {
+        if let Err(error) = self.batteries.try_send(update) {
+            debug!(update = ?error.into_inner(), "battery update dropped: agent not reading");
+        }
+    }
+
     fn notify_lock_key(&self, update: LockKeyUpdate) {
         if self.lock_keys.try_send(update).is_err() {
             debug!(?update, "lock-key update dropped: indicator not reading");
@@ -243,6 +290,7 @@ pub struct EventReceiver {
     lifecycle: mpsc::Receiver<HidppEventSource>,
     backlight: watch::Receiver<Option<BacklightUpdate>>,
     lock_keys: Option<mpsc::Receiver<LockKeyUpdate>>,
+    batteries: Option<mpsc::Receiver<BatteryUpdate>>,
 }
 
 impl EventReceiver {
@@ -272,6 +320,12 @@ impl EventReceiver {
     pub fn take_lock_keys(&mut self) -> Option<mpsc::Receiver<LockKeyUpdate>> {
         self.lock_keys.take()
     }
+
+    /// Take the broadcast battery readings, independently of inventory.
+    /// `None` once taken: the readings have a single reader.
+    pub fn take_batteries(&mut self) -> Option<mpsc::Receiver<BatteryUpdate>> {
+        self.batteries.take()
+    }
 }
 
 /// Build the reconciliation, backlight and lock-key channels used by an
@@ -281,11 +335,13 @@ pub fn event_channel() -> (EventNotifier, EventReceiver) {
     let (sender, receiver) = mpsc::channel(1);
     let (backlight, backlight_receiver) = watch::channel(None);
     let (lock_keys, lock_key_receiver) = mpsc::channel(LOCK_KEY_QUEUE);
+    let (batteries, battery_receiver) = mpsc::channel(BATTERY_QUEUE);
     (
         EventNotifier {
             sender,
             backlight,
             lock_keys,
+            batteries,
             #[cfg(test)]
             observation: None,
         },
@@ -293,6 +349,7 @@ pub fn event_channel() -> (EventNotifier, EventReceiver) {
             lifecycle: receiver,
             backlight: backlight_receiver,
             lock_keys: Some(lock_key_receiver),
+            batteries: Some(battery_receiver),
         },
     )
 }
@@ -328,6 +385,7 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
     let (sender, receiver) = mpsc::channel(1);
     let (backlight, backlight_receiver) = watch::channel(None);
     let (lock_keys, lock_key_receiver) = mpsc::channel(LOCK_KEY_QUEUE);
+    let (batteries, battery_receiver) = mpsc::channel(BATTERY_QUEUE);
     let observation = Arc::new(EventObservation {
         count: AtomicUsize::new(0),
         changed: Notify::new(),
@@ -337,12 +395,14 @@ pub(crate) fn observed_event_channel() -> (EventNotifier, EventReceiver, EventOb
             sender,
             backlight,
             lock_keys,
+            batteries,
             observation: Some(Arc::clone(&observation)),
         },
         EventReceiver {
             lifecycle: receiver,
             backlight: backlight_receiver,
             lock_keys: Some(lock_key_receiver),
+            batteries: Some(battery_receiver),
         },
         EventObserver { observation },
     )
@@ -417,14 +477,12 @@ impl EventFeatureIndices {
         {
             return Some(HidppEventSource::WirelessDeviceStatus);
         }
-        if self.unified_battery == Some(header.feature_index)
-            && BatteryEvent::decode(function_id, &payload).is_some()
-        {
+        // The battery broadcasts are not gated on decoding the payload: an
+        // unknown level or status still announces a change, which a re-read
+        // and the reconciliation answer. Only the event function counts.
+        if self.unified_battery == Some(header.feature_index) && function_id == 0 {
             return Some(HidppEventSource::UnifiedBattery);
         }
-        // Unlike the two above, the rest are not gated on decoding the
-        // payload: the reconciliation re-reads the battery, and an unknown
-        // status or flags value still announces a change.
         if self.battery_status == Some(header.feature_index)
             && BatteryStatusFeature::is_status_broadcast(function_id)
         {
@@ -546,14 +604,151 @@ struct LockKeyRead {
     connection: u64,
 }
 
+/// What a channel knows about one device's battery, so a broadcast can be
+/// turned into a reading without waiting for a reconciliation.
+#[derive(Clone, Debug)]
+struct BatteryTracking {
+    device_index: u8,
+    /// The battery feature the probe reads, `None` until a probe found one.
+    probe: Option<BatteryProbe>,
+    /// The latest reading, from a reconciliation or a broadcast, for the
+    /// percentage a charging voltage or legacy battery holds.
+    last: Option<BatteryInfo>,
+    /// When a broadcast last set [`Self::last`]. A reconciliation that
+    /// started before it read the battery before the change.
+    broadcast_at: Option<Instant>,
+}
+
+/// The HID node a channel was opened on, which names a broadcast's device to
+/// the agent together with its device index.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ChannelNode {
+    pub(super) vendor_id: u16,
+    pub(super) product_id: u16,
+}
+
+impl ChannelNode {
+    pub(super) const fn new(vendor_id: u16, product_id: u16) -> Self {
+        Self {
+            vendor_id,
+            product_id,
+        }
+    }
+}
+
 struct SubscriptionState {
     protocol: Option<ReceiverProtocol>,
     devices: RwLock<Vec<DeviceEvents>>,
     receiver_snapshot_depth: AtomicUsize,
     notifier: EventNotifier,
+    node: ChannelNode,
+    batteries: RwLock<Vec<BatteryTracking>>,
+    /// The channel, for a battery re-read. Weak: the channel owns the
+    /// listener that owns this state.
+    channel: Weak<HidppChannel>,
+    /// The runtime the enumerator runs on, for a battery re-read started
+    /// from the channel's listener.
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl SubscriptionState {
+    fn new(
+        protocol: Option<ReceiverProtocol>,
+        notifier: EventNotifier,
+        node: ChannelNode,
+        channel: Weak<HidppChannel>,
+    ) -> Self {
+        Self {
+            protocol,
+            devices: RwLock::new(Vec::new()),
+            receiver_snapshot_depth: AtomicUsize::new(0),
+            notifier,
+            node,
+            batteries: RwLock::new(Vec::new()),
+            channel,
+            runtime: tokio::runtime::Handle::try_current().ok(),
+        }
+    }
+
+    /// The channel listener: notify the lifecycle of an event, and hand a
+    /// battery broadcast's reading to the agent first, since it reaches the
+    /// popup at once while the reconciliation waits for its settle and scan.
+    fn on_message(self: &Arc<Self>, raw: HidppMessage, matched: bool) {
+        if let Some(source) = self.decode(raw, matched) {
+            if source.is_battery() {
+                self.battery_broadcast(raw, source);
+            }
+            self.notifier.notify(source);
+        }
+    }
+
+    /// Turn a battery broadcast from `device_index` into a reading for the
+    /// agent: straight from the payload when it is complete, otherwise by one
+    /// re-read of the battery feature the probe found.
+    fn battery_broadcast(self: &Arc<Self>, raw: HidppMessage, source: HidppEventSource) {
+        let message = v20::Message::from(raw);
+        let device_index = message.header().device_index;
+        let Some(probe) = self.battery_probe(device_index) else {
+            // Not probed yet: the reconciliation this broadcast requested
+            // reads it.
+            return;
+        };
+        if let Some(battery) = battery_from_broadcast(probe, source, &message) {
+            self.publish_battery(device_index, probe, battery);
+            return;
+        }
+        let (Some(runtime), Some(channel)) = (self.runtime.as_ref(), self.channel.upgrade()) else {
+            return;
+        };
+        let state = Arc::clone(self);
+        runtime.spawn(async move {
+            match read_battery(&channel, device_index, probe, None).await {
+                BatteryRead::Reading(battery) => {
+                    state.publish_battery(device_index, probe, battery);
+                }
+                BatteryRead::Unlinked | BatteryRead::Unavailable => {
+                    debug!(device_index, "battery re-read after a broadcast failed");
+                }
+            }
+        });
+    }
+
+    fn battery_probe(&self, device_index: u8) -> Option<BatteryProbe> {
+        self.batteries
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|battery| battery.device_index == device_index)
+            .and_then(|battery| battery.probe)
+    }
+
+    /// Record a broadcast reading and hand it to the agent, unless it repeats
+    /// the last one.
+    fn publish_battery(&self, device_index: u8, probe: BatteryProbe, fresh: BatteryInfo) {
+        let battery = {
+            let mut batteries = self
+                .batteries
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            let tracking = tracking_entry(&mut batteries, device_index);
+            let battery = hold_percentage_while_charging(fresh, tracking.last.as_ref(), probe);
+            let repeated = tracking.last.as_ref() == Some(&battery);
+            tracking.last = Some(battery.clone());
+            tracking.broadcast_at = Some(Instant::now());
+            if repeated {
+                return;
+            }
+            battery
+        };
+        debug!(device_index, ?battery, "battery broadcast");
+        self.notifier.notify_battery(BatteryUpdate {
+            vendor_id: self.node.vendor_id,
+            product_id: self.node.product_id,
+            device_index,
+            battery,
+        });
+    }
+
     fn decode(&self, raw: HidppMessage, matched: bool) -> Option<HidppEventSource> {
         if matched {
             return None;
@@ -679,6 +874,65 @@ impl SubscriptionState {
         {
             device.forget_lock_keys();
         }
+    }
+}
+
+fn tracking_entry(batteries: &mut Vec<BatteryTracking>, device_index: u8) -> &mut BatteryTracking {
+    let position = batteries
+        .iter()
+        .position(|battery| battery.device_index == device_index)
+        .unwrap_or_else(|| {
+            batteries.push(BatteryTracking {
+                device_index,
+                probe: None,
+                last: None,
+                broadcast_at: None,
+            });
+            batteries.len() - 1
+        });
+    &mut batteries[position]
+}
+
+/// The reading a battery broadcast carries for the feature `probe` reads, or
+/// `None` when the broadcast is from another feature or its payload holds a
+/// value this cannot map.
+///
+/// Each of these broadcasts shares its layout with the feature's status
+/// reply, as Solaar and the Linux driver read them.
+fn battery_from_broadcast(
+    probe: BatteryProbe,
+    source: HidppEventSource,
+    message: &v20::Message,
+) -> Option<BatteryInfo> {
+    let header = message.header();
+    let payload = message.extend_payload();
+    match (probe, source) {
+        (
+            BatteryProbe::Unified {
+                index,
+                state_of_charge,
+            },
+            HidppEventSource::UnifiedBattery,
+        ) if index == header.feature_index => {
+            let Some(BatteryEvent::InfoUpdate(info)) =
+                BatteryEvent::decode(header.function_id.to_lo(), &payload)
+            else {
+                return None;
+            };
+            Some(unified_reading(info, state_of_charge))
+        }
+        (BatteryProbe::Legacy { index, mileage }, HidppEventSource::BatteryStatus)
+            if index == header.feature_index =>
+        {
+            let status = LegacyBatteryStatus::try_from(payload[2]).ok()?;
+            Some(legacy_battery_info(payload[0], status, mileage))
+        }
+        (BatteryProbe::Voltage(index), HidppEventSource::BatteryVoltage)
+            if index == header.feature_index =>
+        {
+            Some(voltage_reading(VoltageBatteryInfo::from_wire(&payload)))
+        }
+        _ => None,
     }
 }
 
@@ -851,6 +1105,35 @@ impl EventSubscriptionHandle {
             .map_or(0, |device| device.settings_revision)
     }
 
+    /// Fold a reconciliation's battery reading for `device_index` into what
+    /// broadcasts are read against, and remember the battery feature `probe`
+    /// for them.
+    ///
+    /// A broadcast newer than the reconciliation's start `tick` outranks the
+    /// reading, which may predate the change: `battery` is replaced by the
+    /// broadcast reading, so a slow scan never reports the phase before it.
+    pub(super) fn reconcile_battery(
+        &self,
+        device_index: u8,
+        probe: Option<BatteryProbe>,
+        tick: Instant,
+        battery: &mut Option<BatteryInfo>,
+    ) {
+        let mut batteries = self
+            .state
+            .batteries
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let tracking = tracking_entry(&mut batteries, device_index);
+        if probe.is_some() {
+            tracking.probe = probe;
+        }
+        match (tracking.broadcast_at, &tracking.last) {
+            (Some(at), Some(last)) if at >= tick => *battery = Some(last.clone()),
+            _ => tracking.last.clone_from(battery),
+        }
+    }
+
     /// Suppress receiver connection events fabricated by the enumerator's own
     /// arrival trigger. A real event in this interval is covered by the probe
     /// already in progress; events immediately before or after remain queued.
@@ -874,21 +1157,18 @@ impl ChannelEventSubscriptions {
     pub(super) fn attach(
         channel: &Arc<HidppChannel>,
         protocol: Option<ReceiverProtocol>,
+        node: ChannelNode,
         notifier: EventNotifier,
     ) -> Self {
-        let state = Arc::new(SubscriptionState {
+        let state = Arc::new(SubscriptionState::new(
             protocol,
-            devices: RwLock::new(Vec::new()),
-            receiver_snapshot_depth: AtomicUsize::new(0),
             notifier,
-        });
+            node,
+            Arc::downgrade(channel),
+        ));
         let listener = channel.add_msg_listener_guarded({
             let state = Arc::clone(&state);
-            move |raw, matched| {
-                if let Some(source) = state.decode(raw, matched) {
-                    state.notifier.notify(source);
-                }
-            }
+            move |raw, matched| state.on_message(raw, matched)
         });
         Self {
             handle: EventSubscriptionHandle { state },
@@ -918,17 +1198,18 @@ impl Drop for ReceiverSnapshotGuard {
 mod tests {
     use hidpp::nibble::U4;
     use hidpp::protocol::{v10, v20};
+    use openlogi_core::device::{BatteryLevel, BatteryStatus};
 
     use super::*;
 
     fn state(protocol: Option<ReceiverProtocol>) -> Arc<SubscriptionState> {
         let (notifier, _receiver) = event_channel();
-        Arc::new(SubscriptionState {
+        Arc::new(SubscriptionState::new(
             protocol,
-            devices: RwLock::new(Vec::new()),
-            receiver_snapshot_depth: AtomicUsize::new(0),
             notifier,
-        })
+            ChannelNode::default(),
+            Weak::new(),
+        ))
     }
 
     #[test]
@@ -1560,12 +1841,12 @@ mod tests {
         let keyboard =
             EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x40a3, 0x1982, 0x4531]);
         let (notifier, receiver) = event_channel();
-        let state = Arc::new(SubscriptionState {
-            protocol: Some(ReceiverProtocol::Bolt),
-            devices: RwLock::new(Vec::new()),
-            receiver_snapshot_depth: AtomicUsize::new(0),
+        let state = Arc::new(SubscriptionState::new(
+            Some(ReceiverProtocol::Bolt),
             notifier,
-        });
+            ChannelNode::default(),
+            Weak::new(),
+        ));
         EventSubscriptionHandle {
             state: Arc::clone(&state),
         }
@@ -1640,12 +1921,12 @@ mod tests {
         let keyboard = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x4220]);
         assert_eq!(keyboard.lock_key_state, Some(3));
         let (notifier, mut receiver) = event_channel();
-        let state = Arc::new(SubscriptionState {
-            protocol: Some(ReceiverProtocol::Bolt),
-            devices: RwLock::new(Vec::new()),
-            receiver_snapshot_depth: AtomicUsize::new(0),
+        let state = Arc::new(SubscriptionState::new(
+            Some(ReceiverProtocol::Bolt),
             notifier,
-        });
+            ChannelNode::default(),
+            Weak::new(),
+        ));
         let handle = EventSubscriptionHandle {
             state: Arc::clone(&state),
         };
@@ -1961,5 +2242,227 @@ mod tests {
             Ok(HidppEventSource::ReceiverConnection)
         );
         assert_eq!(receiver.try_recv(), Err(mpsc::error::TryRecvError::Empty));
+    }
+
+    fn unified_battery_device(
+        soc: bool,
+    ) -> (
+        Arc<SubscriptionState>,
+        EventSubscriptionHandle,
+        EventReceiver,
+        Instant,
+    ) {
+        let (notifier, receiver) = event_channel();
+        let state = Arc::new(SubscriptionState::new(
+            Some(ReceiverProtocol::Bolt),
+            notifier,
+            ChannelNode {
+                vendor_id: 0x046d,
+                product_id: 0xc548,
+            },
+            Weak::new(),
+        ));
+        let handle = EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        };
+        let features = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x1004]);
+        assert_eq!(features.unified_battery, Some(3));
+        handle.register_device(2, features);
+        let tick = Instant::now();
+        let mut reading = Some(BatteryInfo {
+            percentage: Some(80),
+            level: BatteryLevel::Good,
+            status: BatteryStatus::Discharging,
+        });
+        handle.reconcile_battery(
+            2,
+            Some(BatteryProbe::Unified {
+                index: 3,
+                state_of_charge: soc,
+            }),
+            tick,
+            &mut reading,
+        );
+        (state, handle, receiver, tick)
+    }
+
+    /// A `0x1004` event 0 from device 2 with `payload` as its first bytes.
+    fn unified_battery_event(bytes: &[u8]) -> HidppMessage {
+        let mut payload = [0; 16];
+        payload[..bytes.len()].copy_from_slice(bytes);
+        v20::Message::Long(
+            v20::MessageHeader {
+                device_index: 2,
+                feature_index: 3,
+                function_id: U4::from_lo(0),
+                software_id: U4::from_lo(0),
+            },
+            payload,
+        )
+        .into()
+    }
+
+    #[tokio::test]
+    async fn a_charging_broadcast_is_a_reading_at_once() {
+        let (state, _handle, mut receiver, _) = unified_battery_device(true);
+        let mut batteries = receiver.take_batteries().unwrap();
+        // 81%, good, charging.
+        state.on_message(unified_battery_event(&[81, 4, 1]), false);
+        assert_eq!(
+            batteries.try_recv().unwrap(),
+            BatteryUpdate {
+                vendor_id: 0x046d,
+                product_id: 0xc548,
+                device_index: 2,
+                battery: BatteryInfo {
+                    percentage: Some(81),
+                    level: BatteryLevel::Good,
+                    status: BatteryStatus::Charging,
+                },
+            }
+        );
+        // The reconciliation is still requested, as the fallback.
+        assert_eq!(
+            receiver.lifecycle.try_recv().unwrap(),
+            HidppEventSource::UnifiedBattery
+        );
+        // A repeat of the same reading is not announced again.
+        state.on_message(unified_battery_event(&[81, 4, 1]), false);
+        batteries.try_recv().unwrap_err();
+        // Unplugged: discharging again.
+        state.on_message(unified_battery_event(&[81, 4, 0]), false);
+        assert_eq!(
+            batteries.try_recv().unwrap().battery.status,
+            BatteryStatus::Discharging
+        );
+    }
+
+    #[tokio::test]
+    async fn a_level_only_device_broadcasts_no_percentage() {
+        let (state, _handle, mut receiver, _) = unified_battery_device(false);
+        let mut batteries = receiver.take_batteries().unwrap();
+        state.on_message(unified_battery_event(&[0, 2, 1]), false);
+        assert_eq!(
+            batteries.try_recv().unwrap().battery,
+            BatteryInfo {
+                percentage: None,
+                level: BatteryLevel::Low,
+                status: BatteryStatus::Charging,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_battery_broadcast_still_requests_a_reconciliation() {
+        let (state, _handle, mut receiver, _) = unified_battery_device(true);
+        let mut batteries = receiver.take_batteries().unwrap();
+        // A level byte with two bits set decodes to no reading. Without a
+        // channel there is no re-read, but the reconciliation still runs.
+        state.on_message(unified_battery_event(&[50, 6, 1]), false);
+        batteries.try_recv().unwrap_err();
+        assert_eq!(
+            receiver.lifecycle.try_recv().unwrap(),
+            HidppEventSource::UnifiedBattery
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broadcast_from_an_unprobed_device_waits_for_the_reconciliation() {
+        let (notifier, mut receiver) = event_channel();
+        let state = Arc::new(SubscriptionState::new(
+            Some(ReceiverProtocol::Bolt),
+            notifier,
+            ChannelNode::default(),
+            Weak::new(),
+        ));
+        EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        }
+        .register_device(
+            2,
+            EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x1004]),
+        );
+        let mut batteries = receiver.take_batteries().unwrap();
+        state.on_message(unified_battery_event(&[81, 4, 1]), false);
+        batteries.try_recv().unwrap_err();
+        assert_eq!(
+            receiver.lifecycle.try_recv().unwrap(),
+            HidppEventSource::UnifiedBattery
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reconciliation_older_than_a_broadcast_keeps_the_broadcast() {
+        let (state, handle, _receiver, first_tick) = unified_battery_device(true);
+        let charging = BatteryInfo {
+            percentage: Some(81),
+            level: BatteryLevel::Good,
+            status: BatteryStatus::Charging,
+        };
+        state.on_message(unified_battery_event(&[81, 4, 1]), false);
+        // A pass that started before the broadcast read the battery before
+        // the charger went in.
+        let mut before_the_charger = Some(BatteryInfo {
+            percentage: Some(80),
+            level: BatteryLevel::Good,
+            status: BatteryStatus::Discharging,
+        });
+        handle.reconcile_battery(2, None, first_tick, &mut before_the_charger);
+        assert_eq!(before_the_charger.as_ref(), Some(&charging));
+        // A pass that starts after it reads the battery as it is.
+        let later = Instant::now() + std::time::Duration::from_millis(1);
+        let mut full = Some(BatteryInfo {
+            percentage: Some(100),
+            level: BatteryLevel::Full,
+            status: BatteryStatus::Full,
+        });
+        handle.reconcile_battery(2, None, later, &mut full);
+        assert_eq!(full.unwrap().status, BatteryStatus::Full);
+    }
+
+    #[tokio::test]
+    async fn a_charging_voltage_broadcast_holds_the_last_percentage() {
+        let (notifier, mut receiver) = event_channel();
+        let state = Arc::new(SubscriptionState::new(
+            None,
+            notifier,
+            ChannelNode::default(),
+            Weak::new(),
+        ));
+        let handle = EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        };
+        let features = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x1001]);
+        assert_eq!(features.battery_voltage, Some(3));
+        handle.register_device(0xff, features);
+        let mut reading = Some(BatteryInfo {
+            percentage: Some(65),
+            level: BatteryLevel::Good,
+            status: BatteryStatus::Discharging,
+        });
+        handle.reconcile_battery(
+            0xff,
+            Some(BatteryProbe::Voltage(3)),
+            Instant::now(),
+            &mut reading,
+        );
+        let mut batteries = receiver.take_batteries().unwrap();
+        // 4100 mV, charging: the charge current lifts the voltage.
+        let mut payload = [0; 16];
+        payload[..3].copy_from_slice(&[0x10, 0x04, 0x80]);
+        let event = v20::Message::Long(
+            v20::MessageHeader {
+                device_index: 0xff,
+                feature_index: 3,
+                function_id: U4::from_lo(0),
+                software_id: U4::from_lo(0),
+            },
+            payload,
+        )
+        .into();
+        state.on_message(event, false);
+        let update = batteries.try_recv().unwrap();
+        assert_eq!(update.battery.percentage, Some(65));
+        assert_eq!(update.battery.status, BatteryStatus::Charging);
     }
 }

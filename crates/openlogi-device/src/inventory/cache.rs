@@ -89,7 +89,7 @@ pub(super) struct Cached {
 /// has no prior. `0x1000` and a voltage source then both report no percentage
 /// and an unknown level, the "charging, no reading" state, until the first
 /// discharge read.
-fn hold_percentage_while_charging(
+pub(super) fn hold_percentage_while_charging(
     fresh: BatteryInfo,
     prev: Option<&BatteryInfo>,
     probe: BatteryProbe,
@@ -216,9 +216,21 @@ pub(super) async fn probe_or_reuse(
     now: Instant,
     subscriptions: Option<&EventSubscriptionHandle>,
 ) -> (ProbedFeatures, CacheOutcome) {
-    let probed =
+    let (mut probed, mut outcome) =
         probe_or_reuse_registered(channel, target, id, cached, online, now, subscriptions).await;
     if let Some(subscriptions) = subscriptions {
+        if online {
+            // A battery broadcast during this pass outranks the reading it
+            // took, which may predate the charger change.
+            let probe = match &outcome {
+                CacheOutcome::Fresh(_, entry) | CacheOutcome::Update(_, entry) => entry.battery,
+                CacheOutcome::Seen(_) | CacheOutcome::Unkeyed => cached.and_then(|c| c.battery),
+            };
+            subscriptions.reconcile_battery(target.index, probe, now, &mut probed.battery);
+            if let CacheOutcome::Fresh(_, entry) | CacheOutcome::Update(_, entry) = &mut outcome {
+                entry.probe.battery.clone_from(&probed.battery);
+            }
+        }
         subscriptions
             .sync_lock_keys(channel, target.index, online)
             .await;
@@ -226,7 +238,7 @@ pub(super) async fn probe_or_reuse(
             .sync_backlight_effects(channel, target.index, online)
             .await;
     }
-    probed
+    (probed, outcome)
 }
 
 /// [`probe_or_reuse`] without the lock-key state.

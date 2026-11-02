@@ -11,7 +11,6 @@ use openlogi_ipc::BacklightObservation;
 use openlogi_ui::action_icons;
 use tracing::warn;
 
-use crate::chrome;
 use crate::osd;
 
 /// The catalog sentence for the effect key while the backlight is off.
@@ -31,12 +30,12 @@ impl Render for BacklightView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (width, height) = card_size(&self.observation);
         let max_level = max_backlight_level(self.observation.levels);
-        let corner = chrome::corner(cx);
+        let style = crate::icons::style(cx);
         let icon = if self.observation.off_hint {
             // The sentence already says the backlight is off.
-            action_icons::backlight_level_icon(0, max_level, corner)
+            action_icons::backlight_level_icon(0, max_level, style)
         } else {
-            action_icons::backlight_level_icon(self.observation.current_level, max_level, corner)
+            action_icons::backlight_level_icon(self.observation.current_level, max_level, style)
         };
         let card = div()
             .flex()

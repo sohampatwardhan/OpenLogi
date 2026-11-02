@@ -31,6 +31,7 @@ use crate::observable::ObservableState;
 
 mod camera;
 mod capture_plans;
+mod charging;
 mod device_list;
 mod device_settings;
 mod disable_keys_native_write;

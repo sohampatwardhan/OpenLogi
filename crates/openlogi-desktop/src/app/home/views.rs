@@ -279,6 +279,7 @@ fn device_card_element(
         light_enabled,
         light_settings,
         pal,
+        state.app_settings().low_battery_threshold.get(),
     )
     .active(gpui::Styled::shadow_2xs)
     .accessibility_label(record.display_name.clone())
