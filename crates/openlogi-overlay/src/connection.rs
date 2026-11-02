@@ -181,15 +181,15 @@ fn tinted(path: &'static str, colour: Hsla) -> gpui::Svg {
         .text_color(colour)
 }
 
-/// The link glyph's colour: the Logi Bolt mark in its brand green, every
-/// other link in the accent.
+/// The link glyph's colour: the Logi Bolt and Unifying marks in their brand
+/// green and orange, every other link in the accent.
 pub(crate) fn link_colour(link: ConnectionLink) -> Hsla {
     match link {
         ConnectionLink::Bolt => openlogi_ui::color::bolt(),
-        ConnectionLink::Bluetooth
-        | ConnectionLink::Unifying
-        | ConnectionLink::Lightspeed
-        | ConnectionLink::Usb => osd::accent(),
+        ConnectionLink::Unifying => openlogi_ui::color::unifying(),
+        ConnectionLink::Bluetooth | ConnectionLink::Lightspeed | ConnectionLink::Usb => {
+            osd::accent()
+        }
     }
 }
 

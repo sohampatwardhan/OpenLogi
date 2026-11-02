@@ -1080,9 +1080,14 @@ fn home_transport_icon_paints_in_its_transport_color(cx: &mut gpui::TestAppConte
         vendor_id: 0x046d,
         product_id: 0xb034,
     });
+    let unifying = routed(DeviceRoute::Unifying {
+        receiver_uid: "u".into(),
+        slot: 1,
+    });
     let camera = record(DeviceKind::Camera, None);
-    let expected: [(&DeviceRecord, Hsla); 3] = [
+    let expected: [(&DeviceRecord, Hsla); 4] = [
         (&bolt, openlogi_ui::color::bolt()),
+        (&unifying, openlogi_ui::color::unifying()),
         (&bluetooth, rgb(theme::ACCENT_BLUE).into()),
         (&camera, pal.text_muted),
     ];

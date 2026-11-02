@@ -186,14 +186,17 @@ fn a_measured_name_is_wider_than_nothing(cx: &mut gpui::TestAppContext) {
 }
 
 #[test]
-fn the_bolt_mark_takes_its_brand_green_and_other_links_the_accent() {
+fn the_receiver_marks_take_their_brand_colours_and_other_links_the_accent() {
     assert_eq!(
         link_colour(ConnectionLink::Bolt),
         openlogi_ui::color::bolt()
     );
+    assert_eq!(
+        link_colour(ConnectionLink::Unifying),
+        openlogi_ui::color::unifying()
+    );
     for link in [
         ConnectionLink::Bluetooth,
-        ConnectionLink::Unifying,
         ConnectionLink::Lightspeed,
         ConnectionLink::Usb,
     ] {
