@@ -49,7 +49,7 @@ pub(crate) struct LockKeyView {
 }
 
 impl Render for LockKeyView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_row()
@@ -64,7 +64,7 @@ impl Render for LockKeyView {
             .text_color(osd::TEXT)
             .child(
                 svg()
-                    .path(lock_key_icon(self.change.engaged, crate::icons::style(cx)))
+                    .path(lock_key_icon(self.change.engaged))
                     .size(px(24.0))
                     .flex_none()
                     .text_color(glyph_colour(self.change.engaged)),
