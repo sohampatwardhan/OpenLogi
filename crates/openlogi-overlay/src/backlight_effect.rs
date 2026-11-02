@@ -95,7 +95,7 @@ impl BacklightEffectView {
 }
 
 impl Render for BacklightEffectView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows();
         let mut card = div()
             .flex()
@@ -112,7 +112,7 @@ impl Render for BacklightEffectView {
             .font_weight(osd::TITLE)
             .child(
                 svg()
-                    .path(backlight_effect_icon(crate::icons::style(cx)))
+                    .path(backlight_effect_icon())
                     .size(px(ICON))
                     .flex_none()
                     .text_color(osd::TEXT),

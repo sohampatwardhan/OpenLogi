@@ -26,10 +26,12 @@ use openlogi_core::device::ConnectionLink;
 /// glyphs for the binding menus (paste / cut / volume / lock / …), plus the
 /// chrome marks gpui-component's bundled `IconName` set does not cover —
 /// About-page icons, and `mouse-left` / `mouse-right`, which are Lucide's
-/// `mouse` with one button filled in. The overlay popup glyphs
-/// (`backlight-*-rounded`, `keyboard-capslock-badge-*-rounded`) are
+/// `mouse` with one button filled in, and `lightbulb`, which heads the
+/// backlight effect list. The backlight level glyphs (`backlight-*`) are
 /// [Material Symbols](https://fonts.google.com/icons) by Google, Apache
-/// License 2.0. The rest of the app stays on Lucide.
+/// License 2.0. The lock-key glyphs (`arrow-big-up-dash-{filled,duotone}`)
+/// are [Lucide Extended](https://github.com/applifted/lucide-extended) (ISC
+/// license). The rest of the app stays on Lucide.
 ///
 /// The battery cards draw Lucide's `battery-{full,medium,low,warning,charging}`.
 /// [Material Symbols](https://fonts.google.com/icons) (Apache-2.0) supply the
@@ -43,6 +45,8 @@ use openlogi_core::device::ConnectionLink;
 #[rustfmt::skip]
 const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/arrow-left.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-left.svg"))),
+    ("action-icons/arrow-big-up-dash-duotone.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-big-up-dash-duotone.svg"))),
+    ("action-icons/arrow-big-up-dash-filled.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-big-up-dash-filled.svg"))),
     ("action-icons/arrow-right.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-right.svg"))),
     ("action-icons/backlight-high-off-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-off-rounded.svg"))),
     ("action-icons/backlight-high-off-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/backlight-high-off-sharp.svg"))),
@@ -99,15 +103,9 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/globe.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/globe.svg"))),
     ("action-icons/grid-3x3.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/grid-3x3.svg"))),
     ("action-icons/heart.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/heart.svg"))),
-    ("action-icons/keyboard-capslock-badge-outline-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-outline-rounded.svg"))),
-    ("action-icons/keyboard-capslock-badge-outline-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-outline-sharp.svg"))),
-    ("action-icons/keyboard-capslock-badge-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-rounded.svg"))),
-    ("action-icons/keyboard-capslock-badge-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard-capslock-badge-sharp.svg"))),
     ("action-icons/keyboard.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard.svg"))),
     ("action-icons/layers.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layers.svg"))),
     ("action-icons/layout-grid.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layout-grid.svg"))),
-    ("action-icons/lightbulb-rounded.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb-rounded.svg"))),
-    ("action-icons/lightbulb-sharp.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb-sharp.svg"))),
     ("action-icons/lightbulb.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb.svg"))),
     ("action-icons/list-checks.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/list-checks.svg"))),
     ("action-icons/lock.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lock.svg"))),
@@ -326,14 +324,19 @@ pub const BACKLIGHT_HIGH_ICON: &str = "action-icons/backlight-high-rounded.svg";
 /// pressed while the backlight is off.
 pub const BACKLIGHT_OFF_ICON: &str = "action-icons/backlight-high-off-rounded.svg";
 
-/// Filled Caps Lock badge. Every lock-key popup uses it while the key is on.
+/// The filled Caps Lock arrow, Lucide Extended's `arrow-big-up-dash-filled`.
+/// Every lock-key popup uses it while the key is on.
 ///
-/// Num Lock and Scroll Lock share it: Material Symbols has no num-lock or
-/// scroll-lock glyph, and the label still names the key.
-pub const LOCK_KEY_ON_ICON: &str = "action-icons/keyboard-capslock-badge-rounded.svg";
+/// Num Lock and Scroll Lock share it: there is no num-lock or scroll-lock
+/// glyph in the set, and the label still names the key.
+pub const LOCK_KEY_ON_ICON: &str = "action-icons/arrow-big-up-dash-filled.svg";
 
-/// Outlined Caps Lock badge. Every lock-key popup uses it while the key is off.
-pub const LOCK_KEY_OFF_ICON: &str = "action-icons/keyboard-capslock-badge-outline-rounded.svg";
+/// The duotone Caps Lock arrow, `arrow-big-up-dash-duotone`. Every lock-key
+/// popup uses it while the key is off.
+pub const LOCK_KEY_OFF_ICON: &str = "action-icons/arrow-big-up-dash-duotone.svg";
+
+/// Lucide's `lightbulb`, above the backlight effect list.
+pub const BACKLIGHT_EFFECT_ICON: &str = "action-icons/lightbulb.svg";
 
 /// The backlight glyph for `level` on a keyboard whose highest level is
 /// `max_level`, in `style`.
@@ -357,23 +360,24 @@ pub fn backlight_level_icon(level: u8, max_level: u8, style: MaterialSymbolStyle
     material_icon_path(stem, style)
 }
 
-/// The lightbulb above the effect-cycle list, in `style`.
+/// The lightbulb above the effect-cycle list: Lucide's `lightbulb`, one cut.
 #[must_use]
-pub fn backlight_effect_icon(style: MaterialSymbolStyle) -> String {
-    material_icon_path("lightbulb", style)
+pub const fn backlight_effect_icon() -> &'static str {
+    BACKLIGHT_EFFECT_ICON
 }
 
-/// The lock-key glyph for a key that is now `engaged` or not, in `style`.
+/// The lock-key glyph for a key that is now `engaged` or not: filled while
+/// it is on, duotone once it is off. Lucide Extended has one cut, so this
+/// does not follow [`MaterialSymbolStyle`].
 ///
-/// Caps Lock, Num Lock, and Scroll Lock share the Caps Lock badge.
+/// Caps Lock, Num Lock, and Scroll Lock share the Caps Lock arrow.
 #[must_use]
-pub fn lock_key_icon(engaged: bool, style: MaterialSymbolStyle) -> String {
-    let stem = if engaged {
-        "keyboard-capslock-badge"
+pub const fn lock_key_icon(engaged: bool) -> &'static str {
+    if engaged {
+        LOCK_KEY_ON_ICON
     } else {
-        "keyboard-capslock-badge-outline"
-    };
-    material_icon_path(stem, style)
+        LOCK_KEY_OFF_ICON
+    }
 }
 
 /// A full vertical battery, the top of [`BATTERY_BARS`].
@@ -520,8 +524,8 @@ mod tests {
     #[test]
     fn the_material_path_names_the_stem_and_the_cut() {
         assert_eq!(
-            material_icon_path("lightbulb", MaterialSymbolStyle::Rounded),
-            "action-icons/lightbulb-rounded.svg"
+            material_icon_path("backlight-low", MaterialSymbolStyle::Rounded),
+            "action-icons/backlight-low-rounded.svg"
         );
         assert_eq!(
             material_icon_path("backlight-high-off", MaterialSymbolStyle::Sharp),
@@ -548,16 +552,21 @@ mod tests {
 
     #[test]
     fn the_lock_key_indicator_icons_are_embedded() {
-        for engaged in [true, false] {
-            for style in [MaterialSymbolStyle::Rounded, MaterialSymbolStyle::Sharp] {
-                let path = lock_key_icon(engaged, style);
-                assert!(embedded_icon(&path).is_some(), "{path} is missing");
-            }
+        for path in [
+            lock_key_icon(true),
+            lock_key_icon(false),
+            backlight_effect_icon(),
+        ] {
+            let svg = embedded_icon(path)
+                .and_then(|bytes| str::from_utf8(bytes).ok())
+                .unwrap_or_else(|| panic!("{path} is missing"));
+            assert!(
+                svg.contains("currentColor"),
+                "{path} must tint with the popup colour"
+            );
         }
-        assert_ne!(
-            lock_key_icon(true, MaterialSymbolStyle::Rounded),
-            lock_key_icon(false, MaterialSymbolStyle::Rounded)
-        );
+        assert_eq!(lock_key_icon(true), LOCK_KEY_ON_ICON);
+        assert_eq!(lock_key_icon(false), LOCK_KEY_OFF_ICON);
     }
 
     #[test]
@@ -585,10 +594,7 @@ mod tests {
             backlight_level_icon(4, 7, MaterialSymbolStyle::Sharp),
             "action-icons/backlight-high-sharp.svg"
         );
-        assert_eq!(
-            backlight_effect_icon(rounded),
-            "action-icons/lightbulb-rounded.svg"
-        );
+        assert_eq!(backlight_effect_icon(), "action-icons/lightbulb.svg");
     }
 
     #[test]
@@ -600,12 +606,6 @@ mod tests {
             "action-icons/backlight-high-sharp.svg",
             BACKLIGHT_OFF_ICON,
             "action-icons/backlight-high-off-sharp.svg",
-            LOCK_KEY_ON_ICON,
-            "action-icons/keyboard-capslock-badge-sharp.svg",
-            LOCK_KEY_OFF_ICON,
-            "action-icons/keyboard-capslock-badge-outline-sharp.svg",
-            "action-icons/lightbulb-rounded.svg",
-            "action-icons/lightbulb-sharp.svg",
         ] {
             let bytes = embedded_icon(path).expect(path);
             let svg = str::from_utf8(bytes).expect(path);
