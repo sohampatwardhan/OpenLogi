@@ -6,6 +6,7 @@
 //! accent ([`openlogi_ui::color`]), not a second blue local to one popup.
 
 use gpui::{FontWeight, Hsla};
+use openlogi_core::device::BatteryLevel;
 use openlogi_ui::color;
 
 /// Corner radius of every indicator card.
@@ -61,4 +62,24 @@ const fn neutral(lightness: f32, alpha: f32) -> Hsla {
 #[must_use]
 pub(crate) fn accent() -> Hsla {
     color::accent()
+}
+
+/// Whether a battery reading is full: `100%`, or the level Full when the
+/// device reports no percentage. A full battery's glyph and bar turn the
+/// status green on every card that draws one.
+pub(crate) fn is_full_reading(percentage: Option<u8>, level: BatteryLevel) -> bool {
+    match percentage {
+        Some(percentage) => percentage >= 100,
+        None => level == BatteryLevel::Full,
+    }
+}
+
+/// The colour of a battery glyph and bar: the status green when the reading
+/// is full, the accent otherwise.
+pub(crate) fn battery_colour(full: bool) -> Hsla {
+    if full {
+        color::status_green()
+    } else {
+        accent()
+    }
 }

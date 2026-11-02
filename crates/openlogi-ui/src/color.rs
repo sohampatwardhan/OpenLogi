@@ -24,6 +24,16 @@ pub fn accent() -> Hsla {
     rgb(ACCENT_BLUE).into()
 }
 
+/// The status green: a full battery in both GPUI processes, and the settings
+/// app's other on, connected, and granted readouts.
+pub const STATUS_GREEN: u32 = 0x0022_c55e;
+
+/// [`STATUS_GREEN`] as an [`Hsla`].
+#[must_use]
+pub fn status_green() -> Hsla {
+    rgb(STATUS_GREEN).into()
+}
+
 /// The Logi Bolt green the receiver mark is drawn in, wherever either GPUI
 /// process shows a Bolt link: the settings app's device cards and the
 /// overlay's connection popup.

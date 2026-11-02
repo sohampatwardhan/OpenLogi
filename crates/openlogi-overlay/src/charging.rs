@@ -94,10 +94,12 @@ fn glyph(popup: &ChargingPopup, style: MaterialSymbolStyle) -> &'static str {
     }
 }
 
-/// The battery glyph uses the backlight bar's accent, so a filled Material
-/// Symbol takes the same blue as that bar.
-fn glyph_colour(_event: ChargingEvent) -> gpui::Hsla {
-    osd::accent()
+/// The glyph and bar colour: the status green once the battery is full
+/// (Fully charged, or a reading of 100%), the backlight bar's accent before.
+fn glyph_colour(popup: &ChargingPopup) -> gpui::Hsla {
+    osd::battery_colour(
+        popup.event == ChargingEvent::Full || osd::is_full_reading(popup.percentage, popup.level),
+    )
 }
 
 /// The indicator window's view: the popup the agent is showing.
@@ -206,7 +208,7 @@ fn level_bar(fraction: f32, fill: Hsla) -> gpui::Div {
 pub(crate) fn charging_card(popup: &ChargingPopup, style: MaterialSymbolStyle) -> gpui::Div {
     battery_card(BatteryCard {
         icon: glyph(popup, style),
-        colour: glyph_colour(popup.event),
+        colour: glyph_colour(popup),
         copy: charging_copy(popup),
         fraction: charge_fraction(popup.percentage),
     })
@@ -303,10 +305,34 @@ mod tests {
     }
 
     #[test]
-    fn every_popup_glyph_uses_the_backlight_accent() {
-        assert_eq!(glyph_colour(ChargingEvent::Started), osd::accent());
-        assert_eq!(glyph_colour(ChargingEvent::Stopped), osd::accent());
-        assert_eq!(glyph_colour(ChargingEvent::Full), osd::accent());
+    fn a_full_battery_is_green_and_any_other_is_the_accent() {
+        let green = openlogi_ui::color::status_green();
+        assert_eq!(glyph_colour(&popup(ChargingEvent::Full, Some(100))), green);
+        assert_eq!(
+            glyph_colour(&popup(ChargingEvent::Full, Some(98))),
+            green,
+            "Fully charged is green whatever the reading rounds to"
+        );
+        assert_eq!(
+            glyph_colour(&popup(ChargingEvent::Started, Some(100))),
+            green
+        );
+        assert_eq!(
+            glyph_colour(&popup(ChargingEvent::Stopped, Some(100))),
+            green
+        );
+        assert_eq!(
+            glyph_colour(&popup(ChargingEvent::Started, Some(80))),
+            osd::accent()
+        );
+        assert_eq!(
+            glyph_colour(&popup(ChargingEvent::Stopped, Some(99))),
+            osd::accent()
+        );
+    }
+
+    #[test]
+    fn every_popup_picks_its_glyph() {
         let rounded = MaterialSymbolStyle::Rounded;
         for percentage in [Some(15), Some(100), None] {
             assert_eq!(

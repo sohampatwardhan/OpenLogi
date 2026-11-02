@@ -28,9 +28,10 @@ use super::spacing::DynamicSpacing;
 // off `theme::`, beside the status hues and the appearance-derived [`Palette`].
 pub use openlogi_ui::color::{ACCENT_BLUE, accent};
 
-/// Status colours for the connectivity readouts. Fixed like the accent, but the
-/// overlay draws no status, so they stay with the app that does.
-pub const STATUS_CONNECTED: u32 = 0x0022_c55e;
+/// Status colours for the connectivity readouts. Fixed like the accent. The
+/// overlay draws a full battery in the connected green, so that one lives in
+/// `openlogi-ui` beside the accent; the rest stay with the app that draws them.
+pub const STATUS_CONNECTED: u32 = openlogi_ui::color::STATUS_GREEN;
 pub const STATUS_CONNECTING: u32 = 0x00ea_b308;
 pub const STATUS_OFFLINE: u32 = 0x006b_7280;
 /// Ring color for a device the user disabled ("Manage this device" off).
